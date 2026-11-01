@@ -241,3 +241,23 @@ dialog form { display: flex; flex-direction: column; gap: 14px; }
 .cal-days button.day .moon.full { color: #b8901a; }
 .cal-days button.day .moon.exact { font-size: .75rem; font-weight: 700; color: var(--ink); } /* 満月・新月の当日は少し大きく */
 .cal-days button.day .d { margin-top: 8px; }
+
+/* カレンダーの週の帯(イベント・GSD/NMD)。日の列にそろえ、重なる帯は下の段に積む */
+.wk-bars { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-flow: row dense; gap: 2px 3px; margin: 2px 0; }
+.wk-bars .bar {
+  appearance: none; font: inherit; font-size: .66rem; font-weight: 700; line-height: 1.5; text-align: left;
+  min-width: 0; padding: 0 5px; border-radius: 4px; cursor: pointer; touch-action: manipulation;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wk-bars .ev-bar { border: 0; background: #e6dcff; color: #3f2a86; }
+.wk-bars .ev-bar.free { background: #ffe1d6; color: #8a2f12; }
+.wk-bars .moon-bar { border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.wk-bars .moon-bar.full { border-color: #c9a227; }
+.wk-bars .moon-bar.new { border-color: #6b7280; }
+:root[data-theme="dark"] .wk-bars .ev-bar { background: #3a2f63; color: #ddd2ff; }
+:root[data-theme="dark"] .wk-bars .ev-bar.free { background: #4a2a1f; color: #ffc9b5; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .wk-bars .ev-bar { background: #3a2f63; color: #ddd2ff; }
+  :root:not([data-theme="light"]) .wk-bars .ev-bar.free { background: #4a2a1f; color: #ffc9b5; }
+}
+#modalMsg { white-space: pre-line; }

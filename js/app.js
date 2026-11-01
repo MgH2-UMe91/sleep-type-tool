@@ -603,10 +603,25 @@ function viewCalendar(root, id, q) {
       const wevs = [];
       for (let i = 0; i < 7; i++) { const day = addDays(ws, i); if (ymOf(day) === ym) for (const e of evByDate[day] || []) if (!wevs.includes(e)) wevs.push(e); }
       const wfrom = ymOf(ws) === ym ? ws : first, wto = ymOf(addDays(ws, 6)) === ym ? addDays(ws, 6) : addDays(addMonths(ym, 1) + '-01', -1);
-      const wmoon = moonTags(wfrom, wto);
+      // イベントと GSD/NMD を、日の列にそろえた帯で出す(開始日の列〜終了日の列)。
+      // 文字が収まらない帯は、あとで fitBars() が日曜の列まで伸ばす。重なる帯は自動で下の段に積まれる
+      const col = day => daysBetween(ws, day) + 1;
+      const clip = (a, b) => [a < wfrom ? wfrom : a, b > wto ? wto : b];
+      const bars = [];
+      for (const e of wevs) {
+        const [a, b] = clip(e.from, e.to);
+        const name = e.title.replace(/^【[^】]*】\s*/, '').replace(/[「」]/g, '');
+        bars.push(`<button type="button" class="bar ev-bar ${e.typeFree ? 'free' : ''}" style="grid-column:${col(a)} / ${col(b) + 1}"
+          data-full="${esc(e.title)}${e.typeFree ? `(${YAMI}:${YAMI_NOTE}イベント)` : ''}" data-period="${esc(Events.periodLabel(e))}">${e.typeFree ? `<b>${YAMI}</b> ` : ''}${esc(name)}</button>`);
+      }
+      for (const sp of Moon.spansBetween(wfrom, wto)) {
+        const [a, b] = clip(sp.from, sp.to);
+        bars.push(`<button type="button" class="bar moon-bar ${sp.phase}" style="grid-column:${col(a)} / ${col(b) + 1}"
+          data-full="${sp.mark}(${MOON_NAME[sp.phase]}の前後)" data-period="${esc(`${Calc.fmtMd(sp.from)}〜${Calc.fmtMd(sp.to)}(${MOON_NAME[sp.phase]} ${fmtDate(sp.center)} ${sp.time})`)}">${moonSpanLabel(sp)}</button>`);
+      }
       html += `<div class="cal-week ${wt ? 'aim k-' + wt.target : ''}">
-        ${wt || wevs.length ? `<div class="wk-tags">${wt ? `<span class="wk-tag t-${wt.target}">${TYPE_LABEL[wt.target]}を狙う週</span>` : ''}${wevs.map(e => `<span class="ev-tag ${e.typeFree ? 'free' : ''}">${esc(Events.shortTitle(e.title, 11))}${e.typeFree && !/不問|闇鍋/.test(e.title) ? '(闇鍋)' : ''}</span>`).join('')}</div>` : ''}
-        ${wmoon ? `<div class="wk-tags">${wmoon}</div>` : ''}
+        ${wt ? `<div class="wk-tags"><span class="wk-tag t-${wt.target}">${TYPE_LABEL[wt.target]}を狙う週</span></div>` : ''}
+        ${bars.length ? `<div class="wk-bars">${bars.join('')}</div>` : ''}
         <div class="cal-days">${cells}</div></div>`;
     }
     return html + '</section>';
@@ -624,11 +639,21 @@ function viewCalendar(root, id, q) {
 
   const list = $('#calList', root), topEl = $('#calTop', root);
   // 古い月を追加する。追加した高さぶんスクロール位置をずらして、見ている場所を動かさない
+  // 文字が帯に収まらなければ、その帯を週の右端(日曜の列)まで伸ばす。それでも収まらない分は「…」で省略
+  function fitBars(scope) {
+    for (const b of $$('.bar:not(.fitted)', scope)) {
+      b.classList.add('fitted');
+      if (b.scrollWidth > b.clientWidth + 1) b.style.gridColumnEnd = '8';
+    }
+  }
+  fitBars(list);
+
   function prepend(n = 6) {
     if (from <= firstMonth) return false;
     const newFrom = [addMonths(from, -n), firstMonth].sort().pop();
     const h0 = document.documentElement.scrollHeight, y0 = window.scrollY;
     list.insertAdjacentHTML('afterbegin', range(newFrom, addMonths(from, -1)).map(monthHtml).join(''));
+    fitBars(list);
     from = newFrom;
     window.scrollTo(0, y0 + document.documentElement.scrollHeight - h0);
     if (from <= firstMonth) topEl.textContent = '';
@@ -661,7 +686,11 @@ function viewCalendar(root, id, q) {
   sheet.addEventListener('close', clearDay); // Esc キーで閉じたとき
   sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); }); // 外側(背景)をタップで閉じる
   $('#sheetClose', root).onclick = closeSheet;
-  list.addEventListener('click', e => { const b = e.target.closest('button.day'); if (b) openDay(b.dataset.d); });
+  list.addEventListener('click', e => {
+    const bar = e.target.closest('button.bar');
+    if (bar) { ask(`${bar.dataset.full}\n${bar.dataset.period}`, { ok: '閉じる', cancel: null }); return; }
+    const b = e.target.closest('button.day'); if (b) openDay(b.dataset.d);
+  });
   $('#toToday', root).onclick = () => scrollToDay(today, 'smooth');
 
   // 位置合わせは route() のスクロールリセットの後に行う
