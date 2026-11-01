@@ -1,0 +1,207 @@
+// データの保存・読み込み(localStorage)
+// 項目名はそのままデータベースの列名にできるよう、すべて英数字のキャメルケースにしている
+'use strict';
+
+const SCHEMA_VERSION = 1;
+const STORAGE_KEY = 'sleep-type-tool';
+
+// 睡眠記録の列(CSVの列順もこれ)
+// 分割睡眠で同じ日付に複数件ありうる。同じ記録かどうかは 日付+就寝時刻 で判定する
+const RECORD_COLUMNS = ['id', 'date', 'bedTime', 'wakeTime', 'sleepMin', 'utoPct', 'suyaPct', 'gusPct',
+  'autoField', 'type', 'source', 'memo', 'createdAt', 'updatedAt'];
+
+const DEFAULT_SETTINGS = {
+  backupRemindDays: 30,     // 最後の書き出しから何日でお知らせするか
+  defaultRange: 'days',     // 'days' = 直近30日 / 'count' = 直近30回
+  theme: 'auto',            // 'auto' / 'light' / 'dark'
+};
+
+// ---------- 日付のヘルパー(すべて端末のローカル日付) ----------
+const pad2 = n => String(n).padStart(2, '0');
+const ymd = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const parseYmd = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const addDays = (s, n) => { const d = parseYmd(s); d.setDate(d.getDate() + n); return ymd(d); };
+const todayYmd = () => ymd(new Date());
+// 週は月曜始まり
+const mondayOf = s => { const d = parseYmd(s); const wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return ymd(d); };
+const daysBetween = (a, b) => Math.round((parseYmd(b) - parseYmd(a)) / 86400000);
+const isYmd = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(parseYmd(s));
+const isHm = s => typeof s === 'string' && /^\d{1,2}:\d{2}$/.test(s);
+const hmToMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+const minToHm = n => `${Math.floor(n / 60)}:${pad2(n % 60)}`;
+const nowIso = () => new Date().toISOString();
+
+const Store = (() => {
+  let db = null;
+
+  function empty() {
+    return { schemaVersion: SCHEMA_VERSION, records: [], weekTargets: [], dayTargets: [], settings: { ...DEFAULT_SETTINGS }, lastExportAt: null };
+  }
+
+  // 古い版のデータを今の版にそろえる(版が上がったらここに変換を足す)
+  function migrate(d) {
+    const out = empty();
+    if (!d || typeof d !== 'object') return out;
+    out.records = Array.isArray(d.records) ? d.records.map(normalizeRecord).filter(Boolean) : [];
+    out.weekTargets = Array.isArray(d.weekTargets) ? d.weekTargets.filter(t => isYmd(t.weekStart) && TARGETS.includes(t.target)) : [];
+    out.dayTargets = Array.isArray(d.dayTargets) ? d.dayTargets.filter(t => isYmd(t.date) && TARGETS.includes(t.target)) : [];
+    out.settings = { ...DEFAULT_SETTINGS, ...(d.settings || {}) };
+    delete out.settings.includeNaps; // 試作時の設定(分割睡眠を昼寝と誤解していた)。今は使わない
+    out.lastExportAt = d.lastExportAt || null;
+    return out;
+  }
+
+  const TARGETS = ['uto', 'suya', 'gus', 'none'];
+  const TYPES = ['none', 'uto', 'suya', 'gus', ''];
+
+  // 記録1件を正しい形にそろえる。日付か割合がおかしいものは捨てる
+  function normalizeRecord(r) {
+    if (!r || !isYmd(r.date)) return null;
+    const num = v => (v === '' || v === null || v === undefined || isNaN(Number(v))) ? null : Math.round(Number(v));
+    const rec = {
+      id: r.id ? String(r.id) : newId(),
+      date: r.date,
+      bedTime: isHm(r.bedTime) ? r.bedTime.padStart(5, '0') : '',
+      wakeTime: isHm(r.wakeTime) ? r.wakeTime.padStart(5, '0') : '',
+      sleepMin: num(r.sleepMin),
+      utoPct: num(r.utoPct),
+      suyaPct: num(r.suyaPct),
+      gusPct: num(r.gusPct),
+      autoField: ['uto', 'suya', 'gus'].includes(r.autoField) ? r.autoField : '',
+      type: TYPES.includes(r.type) ? r.type : '',
+      source: ['manual', 'ocr', 'ocr_edited'].includes(r.source) ? r.source : 'manual',
+      memo: r.memo ? String(r.memo) : '',
+      createdAt: r.createdAt || nowIso(),
+      updatedAt: r.updatedAt || r.createdAt || nowIso(),
+    };
+    if ([rec.utoPct, rec.suyaPct, rec.gusPct].some(v => v === null || v < 0 || v > 100)) return null;
+    return rec;
+  }
+
+  function newId() {
+    return (crypto.randomUUID ? crypto.randomUUID() : 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+  }
+
+  function load() {
+    try { db = migrate(JSON.parse(localStorage.getItem(STORAGE_KEY))); }
+    catch (e) { db = empty(); }
+    return db;
+  }
+  function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }
+  const get = () => db || load();
+
+  // 日付→就寝時刻の順に並べる
+  const sortKey = r => r.date + ' ' + (r.bedTime || '99:99');
+  function records() { return get().records.slice().sort((a, b) => sortKey(a) < sortKey(b) ? -1 : sortKey(a) > sortKey(b) ? 1 : 0); }
+
+  function upsertRecord(r) {
+    const d = get();
+    const rec = normalizeRecord({ ...r, updatedAt: nowIso() });
+    if (!rec) throw new Error('記録の形が正しくありません');
+    const i = d.records.findIndex(x => x.id === rec.id);
+    if (i >= 0) { rec.createdAt = d.records[i].createdAt; d.records[i] = rec; } else d.records.push(rec);
+    save();
+    return rec;
+  }
+  // 同じ睡眠の記録か(日付+就寝時刻)
+  const sameSleep = (a, b) => a.date === b.date && (a.bedTime || '') === (b.bedTime || '');
+  function deleteRecord(id) { const d = get(); d.records = d.records.filter(r => r.id !== id); save(); }
+  function findDuplicate(r) {
+    return get().records.find(x => x.id !== r.id && sameSleep(x, r));
+  }
+
+  // ---------- 狙い ----------
+  function setWeekTarget(weekStart, target) {
+    const d = get();
+    d.weekTargets = d.weekTargets.filter(t => t.weekStart !== weekStart);
+    if (target) d.weekTargets.push({ weekStart, target });
+    save();
+  }
+  function setDayTarget(date, target) {
+    const d = get();
+    d.dayTargets = d.dayTargets.filter(t => t.date !== date);
+    if (target) d.dayTargets.push({ date, target });
+    save();
+  }
+  // その日の狙い。日の設定が週の設定より優先。どちらもなければ null
+  function targetOf(date) {
+    const d = get();
+    const day = d.dayTargets.find(t => t.date === date);
+    if (day) return { target: day.target, from: 'day' };
+    const wk = d.weekTargets.find(t => t.weekStart === mondayOf(date));
+    if (wk) return { target: wk.target, from: 'week' };
+    return null;
+  }
+
+  function setSetting(k, v) { get().settings[k] = v; save(); }
+
+  // ---------- 書き出し・読み込み ----------
+  function exportJson() {
+    const d = get();
+    d.lastExportAt = nowIso(); save();
+    return JSON.stringify({ app: 'sleep-type-tool', exportedAt: d.lastExportAt, ...d }, null, 2);
+  }
+  function exportCsv() {
+    const d = get();
+    d.lastExportAt = nowIso(); save();
+    const esc = v => { const s = v === null || v === undefined ? '' : String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const lines = [RECORD_COLUMNS.join(',')].concat(records().map(r => RECORD_COLUMNS.map(c => esc(r[c])).join(',')));
+    return '﻿' + lines.join('\r\n') + '\r\n';
+  }
+
+  function parseCsv(text) {
+    text = text.replace(/^﻿/, '');
+    const rows = []; let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) {
+        if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+        else cell += ch;
+      } else if (ch === '"') q = true;
+      else if (ch === ',') { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+      else cell += ch;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    const head = rows.shift() || [];
+    return rows.filter(r => r.some(c => c !== '')).map(r => Object.fromEntries(head.map((h, i) => [h.trim(), r[i]])));
+  }
+
+  // 読み込み。mode: 'replace' 上書き / 'append' 追加(重複は除外)
+  // 戻り値: { added, skipped, invalid }
+  function importText(text, fileName, mode) {
+    let incoming;
+    const isJson = /\.json$/i.test(fileName) || /^\s*\{/.test(text);
+    if (isJson) {
+      const raw = JSON.parse(text);
+      if (!raw || !Array.isArray(raw.records)) throw new Error('このアプリのJSONではないようです');
+      incoming = { rawCount: raw.records.length, ...migrate(raw), hasSettings: !!raw.settings };
+    } else {
+      const rows = parseCsv(text);
+      if (!rows.length || !('date' in rows[0])) throw new Error('CSVの1行目に列名(date など)がありません');
+      incoming = { rawCount: rows.length, records: rows.map(normalizeRecord).filter(Boolean), weekTargets: [], dayTargets: [], hasSettings: false };
+    }
+    const invalid = incoming.rawCount - incoming.records.length;
+    const d = get();
+    if (mode === 'replace') {
+      d.records = incoming.records;
+      if (isJson) { d.weekTargets = incoming.weekTargets; d.dayTargets = incoming.dayTargets; if (incoming.hasSettings) d.settings = incoming.settings; }
+      save();
+      return { added: incoming.records.length, skipped: 0, invalid };
+    }
+    let added = 0, skipped = 0;
+    for (const r of incoming.records) {
+      const dup = d.records.some(x => x.id === r.id || sameSleep(x, r));
+      if (dup) skipped++; else { d.records.push(r); added++; }
+    }
+    for (const t of incoming.weekTargets) if (!d.weekTargets.some(x => x.weekStart === t.weekStart)) d.weekTargets.push(t);
+    for (const t of incoming.dayTargets) if (!d.dayTargets.some(x => x.date === t.date)) d.dayTargets.push(t);
+    save();
+    return { added, skipped, invalid };
+  }
+
+  function clearAll() { const s = get().settings; db = empty(); db.settings = s; save(); }
+
+  return { load, get, records, upsertRecord, deleteRecord, findDuplicate, newId, setWeekTarget, setDayTarget, targetOf,
+    setSetting, exportJson, exportCsv, importText, clearAll, normalizeRecord };
+})();

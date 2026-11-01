@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="睡眠タイプの記録と平均をつける非公式ファンツール。データは端末内だけに保存します。">
+<title>睡眠タイプ管理ツール by ゆめくい</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1 id="pageTitle">睡眠タイプ管理ツール</h1><span class="byline">by ゆめくい</span>
+</header>
+<main id="view" tabindex="-1"></main>
+<nav class="tabbar" aria-label="画面の切り替え">
+  <a href="#home" data-tab="home"><span class="ic" aria-hidden="true">◐</span>ホーム</a>
+  <a href="#input" data-tab="input"><span class="ic" aria-hidden="true">＋</span>入力</a>
+  <a href="#calendar" data-tab="calendar"><span class="ic" aria-hidden="true">▦</span>カレンダー</a>
+  <a href="#stats" data-tab="stats"><span class="ic" aria-hidden="true">≒</span>統計</a>
+  <a href="#menu" data-tab="menu"><span class="ic" aria-hidden="true">≡</span>メニュー</a>
+</nav>
+<div id="toast" role="status" aria-live="polite"></div>
+<dialog id="modal"><form method="dialog"><p id="modalMsg"></p><div id="modalExtra"></div><div class="row end"><button value="cancel" class="btn ghost" id="modalCancel">やめる</button><button value="ok" class="btn" id="modalOk">OK</button></div></form></dialog>
+<script src="js/store.js"></script>
+<script src="js/calc.js"></script>
+<script src="js/ocr.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
