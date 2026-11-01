@@ -122,6 +122,38 @@ function viewHome(root) {
   </div>`;
 }
 
+// 読み取りの詳細(折りたたみ)。実機で読めなかったとき、この部分のスクショを送ってもらえば原因を調べられる
+function debugDetails(res) {
+  const el = document.createElement('details');
+  el.className = 'ocr-debug';
+  const dbg = res.debug;
+  if (!dbg) return el;
+  const L = dbg.loc;
+  const band = (b, extra = '') => b ? `y ${b.a}〜${b.b}${extra}` : '見つからず';
+  const rows = [
+    ['画像サイズ', dbg.size],
+    ['割合バー', L && band(L.bar)],
+    ['見出し帯', L && band(L.header)],
+    ['タイプ帯', L && band(L.pill, L.pill ? `(${TYPE_LABEL[L.pill.cls]})` : '')],
+    ['日付帯', L && band(L.dateBand, L.dateBand ? ` / 文字 ${L.dateBand.ta ?? '—'}〜${L.dateBand.tb ?? '—'} / 右端 x ${L.dateBand.xr}` : '')],
+    ['色帯の比率', res.bar ? res.bar.join(' / ') : '—'],
+    ['読み取り結果', res.error ? res.error : `${res.date ?? '日付?'} ${res.bedTime ?? '?'}〜${res.wakeTime ?? '?'} ${res.sleepMin != null ? minToHm(res.sleepMin) : '?'} ${res.rate ? res.rate.map(v => v ?? '?').join('/') : ''} ${res.type ? TYPE_LABEL[res.type] : 'タイプ?'}`],
+    ['処理時間', res.ms != null ? `${res.ms}ms` : '—'],
+    ['端末', navigator.userAgent],
+  ];
+  el.innerHTML = `<summary>読み取りの詳細</summary>
+    <p class="small muted">うまく読めなかったときは、ここを開いた画面のスクショを作者に送ってください(この内容は自動では送信されません)。</p>
+    <div class="dbg-grid small">${rows.map(r => `<span class="muted">${r[0]}</span><span class="num">${esc(r[1] ?? '—')}</span>`).join('')}</div>`;
+  for (const c of dbg.crops) {
+    const box = document.createElement('div');
+    box.className = 'dbg-crop';
+    box.innerHTML = `<div class="small"><b>${esc(c.label)}</b> <span class="muted">認識:</span><span class="num">「${esc(c.raw)}」</span></div>`;
+    box.append(c.canvas);
+    el.append(box);
+  }
+  return el;
+}
+
 // ================= 入力 =================
 // 3つの割合欄:2つ入れると残りを 100−合計 で自動入力
 function attachPct(root, onChange) {
@@ -193,6 +225,7 @@ function viewInput(root, id, q) {
     <input type="file" id="shot" accept="image/*">
     <img id="shotPrev" class="preview-img hidden" alt="選んだスクショ">
     <p id="shotMsg" class="msg"></p>
+    <div id="shotDbg"></div>
     <p class="small muted">何枚もまとめて入れるときは <a href="#bulk">一括取り込み</a></p>
   </section>`}
   <form class="card" id="f" novalidate>
@@ -250,12 +283,18 @@ function viewInput(root, id, q) {
     const prev = $('#shotPrev', root), m = $('#shotMsg', root);
     prev.src = URL.createObjectURL(file); prev.classList.remove('hidden');
     m.className = 'msg muted'; m.textContent = '読み取り中…(初回は文字認識の準備に数秒かかります)';
+    $('#shotDbg', root).replaceChildren();
     try {
       const res = await Ocr.analyzeFile(file);
+      $('#shotDbg', root).replaceChildren(debugDetails(res));
       if (res.error) { m.className = 'msg err'; m.textContent = res.error; return; }
-      if (res.date) f.date.value = res.date;
+      // 読めなかった項目は空欄にして強調する(既定値のまま保存されないように)
+      f.date.value = res.date || '';
       f.bedTime.value = res.bedTime || ''; f.wakeTime.value = res.wakeTime || '';
       sleepEdited = res.sleepMin != null; setSleep(res.sleepMin); syncSleep();
+      if (res.sleepMin == null) setSleep(null);
+      [[f.date, !res.date], [f.bedTime, !res.bedTime], [f.wakeTime, !res.wakeTime], [f.sleepH, res.sleepMin == null], [f.sleepM, res.sleepMin == null], [f.type, !res.type]]
+        .forEach(([el, bad]) => el.classList.toggle('bad', bad));
       pct.set({ uto: res.rate[0], suya: res.rate[1], gus: res.rate[2] });
       f.type.value = res.type || '';
       source = 'ocr';
@@ -266,6 +305,10 @@ function viewInput(root, id, q) {
       m.className = 'msg err'; m.textContent = '読み取りに失敗しました:' + e.message;
     }
   };
+
+  // 強調した欄は、手で直したら元に戻す
+  f.addEventListener('input', e => { if (!e.target.dataset.pct) e.target.classList.remove('bad'); });
+  f.addEventListener('change', e => { if (!e.target.dataset.pct) e.target.classList.remove('bad'); });
 
   f.onsubmit = async e => {
     e.preventDefault();
@@ -311,9 +354,11 @@ function viewBulk(root) {
 
   // 1件の状態を確認して、要確認の理由を返す
   function check(it, i) {
-    const w = it.ocr.error ? [it.ocr.error] : it.ocr.warnings.slice();
     const v = it.v;
-    if (!isYmd(v.date)) w.push('日付がありません');
+    // 読めなかった項目は、手で埋めたら警告を消す
+    const filled = { '日付が読めません': isYmd(v.date), '就寝・起床時刻が読めません': !!(v.bedTime && v.wakeTime), '睡眠時間が読めません': v.sleepMin != null, 'タイプの帯が見つかりません': !!v.type };
+    const w = it.ocr.error ? [it.ocr.error] : it.ocr.warnings.filter(x => !filled[x]);
+    if (!isYmd(v.date) && !w.includes('日付が読めません')) w.push('日付がありません');
     const pv = [v.utoPct, v.suyaPct, v.gusPct];
     if (pv.some(x => x === null || x === '' || isNaN(x))) w.push('割合が足りません');
     else if (pv.reduce((a, x) => a + Number(x), 0) !== 100) w.push('割合の合計が100ではありません');
@@ -336,6 +381,7 @@ function viewBulk(root) {
       <div class="grid3">${KINDS.map(k => `<label class="f"><span class="pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span><input type="number" inputmode="numeric" data-k="${PCT_KEY[k]}" value="${v[PCT_KEY[k]] ?? ''}"></label>`).join('')}</div>
       <label class="f">表示タイプ<select data-k="type">${typeOptions(v.type)}</select></label>
       ${it.ocr.bar ? `<p class="small muted">色帯の比率:${it.ocr.bar.join(' / ')}</p>` : ''}
+      <div class="dbg-slot"></div>
     </div>`;
   }
 
@@ -345,6 +391,8 @@ function viewBulk(root) {
       it.warnings = check(it, i);
       el.classList.toggle('need', it.warnings.length > 0);
       $('.w', el).textContent = it.warnings.length ? '要確認:' + it.warnings.join(' / ') : '';
+      // 読めなかった(空の)欄を強調
+      $$('[data-k]', el).forEach(inp => { if (inp.type !== 'checkbox') inp.classList.toggle('bad', inp.value === ''); });
     });
     const n = items.filter(it => it.include).length, need = items.filter(it => it.include && it.warnings.length).length;
     $('#saveSum', root).textContent = `${items.length}件中 ${n}件を保存します${need ? `(うち要確認 ${need}件)` : ''}`;
@@ -370,8 +418,9 @@ function viewBulk(root) {
       items.push(it);
       it.warnings = check(it, items.length - 1);
       // 重複・読み取り失敗はチェックを外しておく
-      it.include = !res.error && !it.warnings.some(w => /同じ日付|日付がありません|割合が足りません/.test(w));
+      it.include = !res.error && !it.warnings.some(w => /同じ日付|日付がありません|日付が読めません|割合が足りません/.test(w));
       $('#results', root).insertAdjacentHTML('beforeend', itemHtml(it, items.length - 1));
+      $(`.bulk-item[data-i="${items.length - 1}"] .dbg-slot`, root).append(debugDetails(res));
     }
     bar.style.width = '100%';
     txt.textContent = `${files.length}枚の読み取りが終わりました。黄色い枠は要確認です。`;

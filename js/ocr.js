@@ -32,7 +32,8 @@ const Ocr = (() => {
     const bands = [];
     for (let y = y0; y < y1; y++) {
       let n = 0;
-      for (let x = 0; x < P.W; x += 2) { const p = P.px(x, y); if (sat(...p) > 40) n++; }
+      // 背景の淡い水色は彩度が40前後あるので、色の濃いバー・見出し(彩度120以上)だけを数える
+      for (let x = 0; x < P.W; x += 2) { const p = P.px(x, y); if (sat(...p) > 60) n++; }
       if (n > P.W / 2 * 0.7) {
         const last = bands[bands.length - 1];
         if (last && y === last.b + 1) last.b = y; else bands.push({ a: y, b: y });
@@ -59,7 +60,8 @@ const Ocr = (() => {
     for (let y = header.a - 3; y > H * 0.25; y--) {
       const L = P.px(Math.round(W * 0.3), y), R = P.px(Math.round(W * 0.7), y), E = P.px(Math.round(W * 0.08), y);
       const cl = colorClass(...L), cr = colorClass(...R);
-      if (cl && cl === cr && luma(...E) > 240) {
+      // 左端は白(色味の変換で少しずれても通るよう、ほぼ白なら可)
+      if (cl && cl === cr && luma(...E) > 225 && sat(...E) < 30) {
         if (!pill) pill = { a: y, b: y, cls: cl }; else pill.a = y;
       } else if (pill) break;
     }
@@ -71,19 +73,28 @@ const Ocr = (() => {
       let n = 0;
       for (let x = Math.round(W * 0.1); x < W * 0.65; x += 2) if (isBlue(P.px(x, y))) n++;
       if (n > (W * 0.55 / 2) * 0.4) { if (!dateBand) dateBand = { a: y, b: y }; else dateBand.b = y; }
-      else if (dateBand && y - dateBand.b > 3) break;
+      // 文字の行は青が減るので、帯の高さの半分程度(画面高さの2%)までの途切れは帯の続きとみなす
+      // (以前は固定の3pxで、大きい元画像では帯が文字の途中で切れていた)
+      else if (dateBand && y - dateBand.b > H * 0.02) break;
     }
     if (dateBand) {
       // 帯の右端(帯の外の白を文字と間違えないため)
       const yr = dateBand.a + Math.max(1, Math.round((dateBand.b - dateBand.a) * 0.1));
       dateBand.xr = 0;
       for (let x = 0; x < W; x++) if (isBlue(P.px(x, yr))) dateBand.xr = x;
-      // 白文字のある行だけに絞る(文字を十分な大きさに拡大するため)
+      // 白文字のある行だけに絞る(文字を十分な大きさに拡大するため)。
+      // 帯のふちの白い線(横いっぱいに白)は除き、白のある行が一番長く続く範囲を文字とする
       const isWhite = (c) => luma(...c) > 200 && sat(...c) < 60;
-      for (let y = dateBand.a; y <= dateBand.b; y++) {
+      const x0 = Math.round(W * 0.15), x1 = Math.round(dateBand.xr - W * 0.01);
+      let run = null;
+      for (let y = dateBand.a; y <= dateBand.b + 1; y++) {
         let n = 0;
-        for (let x = Math.round(W * 0.15); x < dateBand.xr - W * 0.01; x++) if (isWhite(P.px(x, y))) n++;
-        if (n > 1) { if (dateBand.ta === undefined) dateBand.ta = y; dateBand.tb = y; }
+        if (y <= dateBand.b) for (let x = x0; x < x1; x++) if (isWhite(P.px(x, y))) n++;
+        if (n > 1 && n < (x1 - x0) * 0.5) { if (run) run.b = y; else run = { a: y, b: y }; }
+        else if (run) {
+          if (dateBand.ta === undefined || run.b - run.a > dateBand.tb - dateBand.ta) { dateBand.ta = run.a; dateBand.tb = run.b; }
+          run = null;
+        }
       }
     }
     return { bar, header, pill, dateBand };
@@ -203,17 +214,22 @@ const Ocr = (() => {
     const t0 = performance.now();
     const P = getPixels(img);
     const loc = locate(P);
-    if (!loc) return { error: '割合バーが見つかりません(睡眠結果の画面のスクショか確認してください)' };
+    // 実機で原因を調べるための記録(画像サイズ・見つけた帯の位置・切り出し画像・認識した生の文字)
+    const debug = { size: `${P.W}×${P.H}`, loc, crops: [] };
+    const keep = (label, canvas, raw) => { debug.crops.push({ label, canvas, raw }); return canvas; };
+    if (!loc) return { error: '割合バーが見つかりません(睡眠結果の画面のスクショか確認してください)', debug };
     const { digits, jpn } = await getWorkers();
     const { W, H } = P;
-    const res = { warnings: [] };
+    const res = { warnings: [], debug };
 
     // 割合: 見出し帯とバーの間。3等分して数字だけ読む
     const ry0 = loc.header.b + 2, ry1 = loc.bar.a - 2;
     const thirds = [[0.18, 0.40], [0.50, 0.71], [0.81, 1.0]];
     res.rate = [];
     for (let i = 0; i < 3; i++) {
-      const t = await ocr(digits, crop(P, W * thirds[i][0], ry0, W * thirds[i][1], ry1, 'dark'));
+      const cv = crop(P, W * thirds[i][0], ry0, W * thirds[i][1], ry1, 'dark');
+      const t = await ocr(digits, cv);
+      keep(['うとうと%', 'すやすや%', 'ぐっすり%'][i], cv, t);
       const m = t.match(/(\d{1,3})/);
       res.rate.push(m && Number(m[1]) <= 100 ? Number(m[1]) : null);
     }
@@ -259,6 +275,10 @@ const Ocr = (() => {
       const rawSleep = (await ocr(jpn, cvT)).replace(/\s/g, '');
       const rawBed = cvBed ? await ocr(digits, cvBed) : '';
       const rawWake = cvWake ? await ocr(digits, cvWake) : '';
+      keep('睡眠時間', cvT, rawSleep);
+      keep('就寝・起床の行', cvLine, '');
+      if (cvBed) keep('就寝', cvBed, rawBed);
+      if (cvWake) keep('起床', cvWake, rawWake);
       const s = rawSleep.match(/(\d{1,2})時間(\d{1,2})分/) || rawSleep.match(/(\d{1,2})\D+(\d{1,2})/);
       res.sleepMin = s && Number(s[2]) < 60 ? Number(s[1]) * 60 + Number(s[2]) : null;
       const hhmm = (t) => { const d = t.replace(/\D/g, ''); if (d.length < 3) return null; const v = d.slice(-4).padStart(4, '0'); return Number(v.slice(0, 2)) < 24 && Number(v.slice(2)) < 60 ? `${v.slice(0, 2)}:${v.slice(2)}` : null; };
@@ -288,12 +308,19 @@ const Ocr = (() => {
         else if (cur) { groups.push(cur); cur = null; }
       }
       if (cur) groups.push(cur);
+      keep('日付の行', cv, `数字のかたまり ${groups.length}個`);
       const nums = [];
-      for (const g of groups.slice(0, 3)) nums.push((await ocr(digits, sliceX(cv, g.a, g.b))).replace(/\D/g, ''));
+      for (const [i, g] of groups.slice(0, 3).entries()) {
+        const gcv = sliceX(cv, g.a, g.b);
+        const t = await ocr(digits, gcv);
+        keep(`日付の数字${i + 1}`, gcv, t);
+        nums.push(t.replace(/\D/g, ''));
+      }
       let m = nums.length === 3 && /^\d{4}$/.test(nums[0]) && nums[1] && nums[2] ? nums : null;
       if (!m) {
         // 分割に失敗したときは日本語でそのまま読む
         const t = (await ocr(jpn, cv)).replace(/\s/g, '');
+        keep('日付(日本語で読み直し)', cv, t);
         const mm = t.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
         m = mm ? mm.slice(1) : null;
       }
@@ -307,8 +334,8 @@ const Ocr = (() => {
   async function analyzeFile(file) {
     const url = URL.createObjectURL(file);
     try {
-      const img = new Image();
-      img.src = url; await img.decode();
+      // img.decode() はタブが裏にあると止まることがあるので onload で待つ
+      const img = await new Promise((ok, ng) => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => ng(new Error('画像を開けませんでした')); im.src = url; });
       return await analyze(img);
     } finally { URL.revokeObjectURL(url); }
   }
