@@ -1,0 +1,40 @@
+# 公式サイトのお知らせからイベント情報を取り込み、変わっていれば events.json をコミットする
+name: fetch-events
+
+on:
+  schedule:
+    # お知らせは平日 12:00(JST)ごろが多いので、平日の JST 12:30 と 15:00 に確認
+    - cron: '30 3 * * 1-5'
+    - cron: '0 6 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fetch-events
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch events
+        run: python tools/fetch_events.py events.json
+      - name: Commit and push if changed
+        run: |
+          if git diff --quiet -- events.json && git ls-files --error-unmatch events.json >/dev/null 2>&1; then
+            echo "events.json に変更なし"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add events.json
+          git commit -m 'イベント情報を更新'
+          git pull --rebase
+          git push
