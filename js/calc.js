@@ -52,54 +52,77 @@ const Calc = (() => {
     return { type: bestDiff < NEAR_AVG_PT ? 'none' : best, diffs, prior };
   }
 
-  // ホームの「今夜の狙い」。date の夜(就寝日=date)について
-  function todayAdvice(date) {
-    // 平均の基準は直近30回
+  // ---------- 狙う週に向けたおすすめ ----------
+  // 考え方(推定):タイプはその夜の割合が直近30回の平均より目立って多いもの。
+  // 狙う週にタイプXを出すには、狙っていない週にXを少なめにして平均を下げておく。効くのは狙い週の直前30回ぶんの夜だけ。
+
+  // 狙うタイプの平均を下げるために、狙っていない週に意識するタイプ
+  function counterOf(k, avg) {
+    if (k === 'uto') return { k: 'gus', why: '' };
+    if (k === 'gus') return { k: 'uto', why: '' };
+    // すやすや狙い:うとうと・ぐっすりのうち今の平均が高いほう(普段から出やすく、すやすやの少ない夜を作りやすい)。簡易ルール
+    if (!avg.n) return { k: 'gus', why: '記録がないため、ひとまずぐっすり' };
+    const c = avg.uto.mean >= avg.gus.mean ? 'uto' : 'gus';
+    return { k: c, why: `${TYPE_LABEL[c]}のほうが普段の平均が高く(${avg[c].mean.toFixed(1)}%)、すやすやの少ない夜を作りやすいため(簡易ルール)` };
+  }
+
+  // 直近30回が何日ぶんにあたるか。分割睡眠の頻度(直近60日の、記録のある日1日あたりの件数)から見積もる
+  function windowDays(date) {
+    const from = addDays(date, -59);
+    const rs = Store.records().filter(r => r.date >= from && r.date <= date);
+    const days = new Set(rs.map(r => r.date)).size;
+    const perDay = rs.length >= 10 && days ? rs.length / days : 1;
+    return Math.max(1, Math.ceil(RANGE_N / perDay));
+  }
+
+  // date より後に始まる狙い(週の狙いと日の上書き)を近い順に
+  function upcomingTargets(date) {
+    const d = Store.get(), out = [];
+    for (const t of d.weekTargets) if (KINDS.includes(t.target) && t.weekStart > date) out.push({ start: t.weekStart, k: t.target, week: true });
+    for (const t of d.dayTargets) if (KINDS.includes(t.target) && t.date > date && !out.some(o => o.week && o.start <= t.date && t.date <= addDays(o.start, 6) && o.k === t.target)) out.push({ start: t.date, k: t.target, week: false });
+    return out.sort((x, y) => x.start < y.start ? -1 : x.start > y.start ? 1 : 0);
+  }
+
+  const startLabel = x => x.week ? `${fmtMd(x.start)}週` : `${fmtMd(x.start)}`;
+
+  // date(就寝日)の週・夜についての計画。ホームと狙い設定で使う
+  // kind: 'aim'(狙い期間中) / 'prep'(狙い前:平均を下げる) / 'far'(まだ影響しない) / 'unset'(狙い週が未設定)
+  function planFor(date) {
     const avg = averageAt(date, 'count');
-    const rangeLabel = '直近30回の';
-    const pct = k => avg[k] ? avg[k].mean.toFixed(1) + '%' : '—';
-    const t = Store.targetOf(date);
-
-    if (t && t.target !== 'none') {
-      const k = t.target;
-      return {
-        kind: 'target', type: k,
-        title: `今夜は「${TYPE_LABEL[k]}」狙い`,
-        reason: avg.n
-          ? `${TYPE_LABEL[k]}の${rangeLabel}平均は${pct(k)}。その夜の割合が平均より多く出ると${TYPE_LABEL[k]}になりやすい(推定)ので、今夜は${TYPE_LABEL[k]}多めを目指しましょう。`
-          : `まだ記録がないため平均は出せません。今夜は${TYPE_LABEL[k]}多めを目指しましょう。`,
-        from: t.from,
+    const pct = k => avg.n ? avg[k].mean.toFixed(1) + '%' : '—';
+    const ups = upcomingTargets(date);
+    const now = Store.targetOf(date);
+    let plan;
+    if (now && KINDS.includes(now.target)) {
+      const k = now.target;
+      plan = {
+        kind: 'aim', type: k, aim: k,
+        next: `${now.from === 'day' ? '今夜' : '今週'} ${TYPE_LABEL[k]}(狙い期間中)`,
+        title: `${now.from === 'day' ? '今夜' : '今週'}は${TYPE_LABEL[k]}を狙って寝る`,
+        reason: `平均より${TYPE_LABEL[k]}を多めに出すのがねらい(${TYPE_LABEL[k]}の直近30回の平均 ${pct(k)})。`,
       };
+    } else if (!ups.length) {
+      return { kind: 'unset', type: null, next: '未設定', title: 'まず狙う週を決めてください',
+        reason: '狙う週を決めると、それまでの週に意識するタイプをおすすめします。', avg };
+    } else {
+      const x = ups[0], k = x.k, left = daysBetween(date, x.start), win = windowDays(date);
+      const next = `${startLabel(x)} ${TYPE_LABEL[k]}(あと${left}日)`;
+      if (left > win) {
+        plan = { kind: 'far', type: null, aim: k, next,
+          title: '普段どおりでOK',
+          reason: `狙いまで${left}日あり、平均に使う直近30回(いまの記録の頻度で約${win}日ぶん)より先なので、まだ影響しない期間です。あと${left - win}日ほどしたら意識を始めましょう。` };
+      } else {
+        const c = counterOf(k, avg);
+        plan = { kind: 'prep', type: c.k, aim: k, next,
+          title: `${TYPE_LABEL[c.k]}を意識して寝る`,
+          reason: `${TYPE_LABEL[k]}の直近30回の平均 ${pct(k)} → 下げたい。狙う週の前に${TYPE_LABEL[k]}を少なめにしておくと、狙う週に「平均より多い」になりやすい(推定)。` + (c.why ? `${TYPE_LABEL[c.k]}を選んだ理由:${c.why}。` : '') };
+      }
     }
-
-    // 7日以内の狙いをすべて見る。一番近い狙いに向けて、そのタイプを少なめにして平均を下げておく(要件F5)
-    const upcoming = [];
-    for (let i = 1; i <= 7; i++) {
-      const d = addDays(date, i);
-      const u = Store.targetOf(d);
-      if (u && u.target !== 'none') upcoming.push({ d, i, k: u.target });
-    }
-    if (upcoming.length) {
-      const when = x => mondayOf(x.d) !== mondayOf(date) ? `来週の${fmtMd(x.d)}` : `${x.i}日後(${fmtMd(x.d)})`;
-      const near = upcoming[0], k = near.k;
-      const other = upcoming.find(x => x.k !== k);
-      return {
-        kind: 'prep', type: k,
-        title: `今夜は「${TYPE_LABEL[k]}」を少なめに`,
-        reason: `${when(near)}から${TYPE_LABEL[k]}狙い。それまでは${TYPE_LABEL[k]}を少なめにして、${TYPE_LABEL[k]}の平均(今は${pct(k)})を下げておきましょう。平均が低いほど、狙う夜に「平均より多い」になりやすい(推定)。`
-          + (other ? `(${when(other)}は${TYPE_LABEL[other.k]}狙いもあります)` : ''),
-      };
-    }
-
-    // 狙い未設定:平均が一番低いタイプをおすすめ(簡易ルール)
-    if (!avg.n) return { kind: 'empty', type: null, title: '記録を入れると今夜の狙いが出ます', reason: 'まずは最近の睡眠を入力するか、スクショをまとめて取り込んでください。' };
-    let low = KINDS[0];
-    for (const k of KINDS) if (avg[k].mean < avg[low].mean) low = k;
-    return {
-      kind: 'suggest', type: low,
-      title: `おすすめは「${TYPE_LABEL[low]}」`,
-      reason: `狙いが未設定のため簡易ルールでおすすめ:${rangeLabel}平均が一番低いのは${TYPE_LABEL[low]}(${pct(low)})。平均が低いタイプほど、その夜に少し多く出るだけで「平均より多い」になりやすい(推定)。`,
-    };
+    // 次の(別の)狙いを補足で一言
+    const after = plan.kind === 'aim' ? ups.find(u => !(u.k === plan.aim && mondayOf(u.start) === mondayOf(date))) : ups[1];
+    if (after) plan.more = `その次の狙い:${startLabel(after)} ${TYPE_LABEL[after.k]}`;
+    plan.avg = avg;
+    return plan;
   }
 
   const fmtMd = s => { const d = parseYmd(s); return `${d.getMonth() + 1}/${d.getDate()}`; };
@@ -121,5 +144,5 @@ const Calc = (() => {
     return ((hmToMin(wake) - hmToMin(bed)) % 1440 + 1440) % 1440;
   }
 
-  return { pick, stats, averageAt, estimateType, todayAdvice, missingDays, spanMin, fmtMd };
+  return { pick, stats, averageAt, estimateType, planFor, windowDays, missingDays, spanMin, fmtMd };
 })();

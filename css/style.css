@@ -116,6 +116,8 @@ input.bad, select.bad { border-color: var(--err); background: var(--err-soft); }
 .hero.k-suya { border-left-color: var(--t-suya); }
 .hero.k-gus { border-left-color: var(--t-gus); }
 .hero .big { font-size: 1.3rem; font-weight: 700; line-height: 1.4; }
+.hero .next-aim { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.hero .next-aim b { font-size: 1.05rem; }
 .avgbar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; border: 1px solid var(--line); }
 .avgbar span { display: block; }
 .avgtbl { display: grid; grid-template-columns: auto 1fr 1fr 1fr; gap: 2px 10px; font-size: .9rem; align-items: center; }
@@ -192,3 +194,11 @@ dialog form { display: flex; flex-direction: column; gap: 14px; }
 .dbg-crop { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .dbg-crop canvas { max-width: 100%; max-height: 64px; width: auto; height: auto; object-fit: contain; border: 1px solid var(--line); background: #fff; align-self: flex-start; }
 .preview-img { max-width: 100%; max-height: 220px; border-radius: 8px; border: 1px solid var(--line); align-self: flex-start; }
+
+/* 狙い設定:狙う週を決める */
+.week-head { display: grid; grid-template-columns: 1fr 8.5em; gap: 8px; align-items: center; }
+.week.aim { border-left-width: 6px; }
+.week.k-uto { border-left-color: var(--t-uto); }
+.week.k-suya { border-left-color: var(--t-suya); }
+.week.k-gus { border-left-color: var(--t-gus); }
+.week .dayover summary { color: var(--muted); font-size: .78rem; min-height: 28px; }

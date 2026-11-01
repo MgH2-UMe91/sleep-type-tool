@@ -97,8 +97,7 @@ function viewHome(root) {
   // 「今夜」の日付。早朝(NIGHT_START_HOUR 時より前)は前日の夜として扱う。入力の初期日付と同じ規則
   const today = tonightYmd();
   const s = Store.get().settings;
-  const adv = Calc.todayAdvice(today);
-  const t = Store.targetOf(today);
+  const plan = Calc.planFor(today);
   const a30n = Calc.averageAt(today, 'count');
   const missing = Calc.missingDays(today);
   const recs = Store.records();
@@ -108,11 +107,16 @@ function viewHome(root) {
   const last = recs[recs.length - 1];
 
   root.innerHTML = `
-  <section class="card hero ${adv.type ? 'k-' + adv.type : ''}">
+  <section class="card hero ${plan.type ? 'k-' + plan.type : ''}">
     <div class="row"><span class="small muted">${fmtDateLong(today)}の夜</span><span class="guess">推定にもとづく提案</span></div>
-    <p class="big">${esc(adv.title)}</p>
-    <p class="small">${esc(adv.reason)}</p>
-    <p class="small muted">狙い:${t ? `${TARGET_LABEL[t.target]}(${t.from === 'day' ? '日の設定' : '週の設定'})` : '未設定'} · <a href="#targets">狙いを設定する</a></p>
+    <p class="next-aim"><span class="muted small">次の狙い</span><b>${esc(plan.next)}</b></p>
+    <div>
+      <p class="small muted">${plan.kind === 'aim' ? '狙い期間中' : '今週のおすすめ'}</p>
+      <p class="big">${esc(plan.title)}</p>
+    </div>
+    <p class="small">${esc(plan.reason)}</p>
+    ${plan.more ? `<p class="small muted">${esc(plan.more)}</p>` : ''}
+    ${plan.kind === 'unset' ? '<a class="btn" href="#targets">狙う週を決める</a>' : '<p class="small"><a href="#targets">狙う週を決める・変える</a></p>'}
   </section>
   ${needBackup ? `<section class="msg warn">${lastExp ? `最後のバックアップから${expDays}日たちました。` : 'まだバックアップを書き出していません。'}ブラウザのデータを消すと記録も消えます。<a href="#data">データ管理で書き出す</a></section>` : ''}
   ${missing.length ? `<section class="card"><h2>未入力の日</h2><p class="small muted">直近14日で記録がない日</p>
@@ -590,33 +594,62 @@ function viewCalendar(root, id, q) {
 
 // ================= 狙い設定 =================
 function viewTargets(root) {
-  const thisWeek = mondayOf(todayYmd());
-  const d = Store.get();
-  const opt = (sel, first) => `<option value="">${first}</option>` + ['uto', 'suya', 'gus', 'none'].map(t => `<option value="${t}" ${t === sel ? 'selected' : ''}>${TARGET_LABEL[t]}</option>`).join('');
-  let html = `<section class="card"><p class="small">週ごとに狙うタイプを決めます。必要な日だけ、日ごとに上書きできます(日の設定が優先)。週は月曜始まり。</p>
-    <p class="small muted">狙いの数日前からは、狙うタイプを少なめにして平均を下げておくと、狙う夜に「平均より多い」になりやすい(推定)。ホームの提案はこの考え方で出します。</p></section>`;
-  for (let w = -2; w <= 8; w++) {
-    const ws = addDays(thisWeek, w * 7);
-    const wt = d.weekTargets.find(t => t.weekStart === ws);
-    const overrides = d.dayTargets.filter(t => t.date >= ws && t.date <= addDays(ws, 6)).length;
-    let days = '';
-    for (let i = 0; i < 7; i++) {
-      const day = addDays(ws, i);
-      const dt = d.dayTargets.find(t => t.date === day);
-      days += `<label class="dayrow"><span>${fmtDate(day)}</span><select data-day="${day}" aria-label="${fmtDate(day)}の狙い">${opt(dt && dt.target, '週の設定に従う')}</select></label>`;
+  const thisWeek = mondayOf(tonightYmd());
+  const openDays = new Set(); // 日ごとの上書きを開いている週(再描画しても開いたままにする)
+  const opt = (list, sel, first) => `<option value="">${first}</option>` + list.map(t => `<option value="${t}" ${t === sel ? 'selected' : ''}>${TARGET_LABEL[t]}</option>`).join('');
+
+  function render() {
+    const d = Store.get();
+    let weeks = '';
+    for (let w = -1; w <= 12; w++) {
+      const ws = addDays(thisWeek, w * 7);
+      const wt = d.weekTargets.find(t => t.weekStart === ws);
+      const aim = wt && KINDS.includes(wt.target) ? wt.target : '';
+      const overrides = d.dayTargets.filter(t => t.date >= ws && t.date <= addDays(ws, 6));
+      // 狙わない週には、狙う週に向けたおすすめを自動で出す(今週は今夜の時点、ほかの週は月曜の時点で計算)
+      let note;
+      if (aim) note = `<span class="tchip t-${aim}">${TYPE_LABEL[aim]}を狙う週</span>`;
+      else {
+        const p = Calc.planFor(w === 0 ? tonightYmd() : ws);
+        note = p.kind === 'unset' ? '<span class="small muted">この先の狙う週が未設定です(決めるとおすすめが出ます)</span>'
+          : `<span class="small">おすすめ:<b>${esc(p.title)}</b>${p.kind === 'aim' ? '' : `<span class="muted">(次の狙い ${esc(p.next)})</span>`}</span>`;
+      }
+      let days = '';
+      for (let i = 0; i < 7; i++) {
+        const day = addDays(ws, i);
+        const dt = d.dayTargets.find(t => t.date === day);
+        days += `<label class="dayrow"><span>${fmtDate(day)}</span><select data-day="${day}" aria-label="${fmtDate(day)}の狙い">${opt(['uto', 'suya', 'gus', 'none'], dt && dt.target, '週の設定に従う')}</select></label>`;
+      }
+      weeks += `<section class="week ${w === 0 ? 'cur' : ''} ${aim ? 'aim k-' + aim : ''}">
+        <div class="week-head">
+          <span><b>${fmtDate(ws)}〜${fmtDate(addDays(ws, 6))}</b>${w === 0 ? '(今週)' : w === 1 ? '(来週)' : ''}</span>
+          <select data-week="${ws}" aria-label="${fmtDate(ws)}の週の狙い">${opt(KINDS, aim, '狙わない')}</select>
+        </div>
+        <div>${note}</div>
+        <details class="dayover" data-ws="${ws}" ${openDays.has(ws) || overrides.length ? 'open' : ''}><summary>日ごとに変える${overrides.length ? `(${overrides.length}日)` : ''}</summary><div class="stack">${days}</div></details>
+      </section>`;
     }
-    html += `<section class="week ${w === 0 ? 'cur' : ''}">
-      <label class="f"><span><b>${fmtDate(ws)}〜${fmtDate(addDays(ws, 6))}</b>${w === 0 ? '(今週)' : w === 1 ? '(来週)' : ''}</span>
-        <select data-week="${ws}">${opt(wt && wt.target, '未設定')}</select></label>
-      <details ${overrides ? 'open' : ''}><summary>日ごとに上書き${overrides ? `(${overrides}日)` : ''}</summary><div class="stack">${days}</div></details>
-    </section>`;
+    root.innerHTML = `
+    <section class="card">
+      <h2>狙う週を決める</h2>
+      <p class="small">タイプを出したい週にだけ、狙うタイプを付けてください。狙わない週は「狙わない」のままで大丈夫です。その週には、次の狙いに向けて意識するタイプを自動で表示します。</p>
+      <p class="small muted">考え方(推定):タイプは、その夜の割合が直近30回の平均より目立って多いものになる。狙う週の前は狙うタイプを少なめにして平均を下げておくと、狙う週に出やすい。週は月曜始まり。</p>
+    </section>
+    <div class="stack" id="tg">${weeks}</div>`;
+    $$('.dayover', root).forEach(el => el.addEventListener('toggle', () => { if (el.open) openDays.add(el.dataset.ws); else openDays.delete(el.dataset.ws); }));
   }
-  root.innerHTML = `<div class="stack" id="tg">${html}</div>`;
-  $('#tg', root).addEventListener('change', e => {
+
+  const onChange = e => {
     const el = e.target;
-    if (el.dataset.week) { Store.setWeekTarget(el.dataset.week, el.value); toast('週の狙いを保存しました'); }
+    if (!el.dataset.week && !el.dataset.day) return;
+    if (el.dataset.week) { Store.setWeekTarget(el.dataset.week, el.value); toast(el.value ? `${fmtDate(el.dataset.week)}の週を${TARGET_LABEL[el.value]}狙いにしました` : '狙わない週にしました'); }
     if (el.dataset.day) { Store.setDayTarget(el.dataset.day, el.value); toast('日の狙いを保存しました'); }
-  });
+    const y = window.scrollY; render(); window.scrollTo(0, y); // おすすめは狙いによって変わるので描き直す
+  };
+  root.addEventListener('change', onChange);
+  render();
+  // root(#view)は画面をまたいで使い回すので、離れるときにリスナーを外す
+  return () => root.removeEventListener('change', onChange);
 }
 
 // ================= 統計 =================
