@@ -46,7 +46,8 @@ const Store = (() => {
   let db = null;
 
   function empty() {
-    return { schemaVersion: SCHEMA_VERSION, records: [], weekTargets: [], dayTargets: [], settings: { ...DEFAULT_SETTINGS }, lastExportAt: null };
+    // events:利用者が手で追加・修正・非表示にした公式イベント(events.json と id で合わせ、こちらが優先)
+    return { schemaVersion: SCHEMA_VERSION, records: [], weekTargets: [], dayTargets: [], events: [], settings: { ...DEFAULT_SETTINGS }, lastExportAt: null };
   }
 
   // 古い版のデータを今の版にそろえる(版が上がったらここに変換を足す)
@@ -56,6 +57,7 @@ const Store = (() => {
     out.records = Array.isArray(d.records) ? d.records.map(normalizeRecord).filter(Boolean) : [];
     out.weekTargets = Array.isArray(d.weekTargets) ? d.weekTargets.filter(t => isYmd(t.weekStart) && TARGETS.includes(t.target)) : [];
     out.dayTargets = Array.isArray(d.dayTargets) ? d.dayTargets.filter(t => isYmd(t.date) && TARGETS.includes(t.target)) : [];
+    out.events = Array.isArray(d.events) ? d.events.filter(e => e && e.id && (e.hidden || e.title)) : [];
     out.settings = { ...DEFAULT_SETTINGS, ...(d.settings || {}) };
     delete out.settings.includeNaps; // 試作時の設定(分割睡眠を昼寝と誤解していた)。今は使わない
     delete out.settings.defaultRange; // 平均は直近30回に統一したので、30日/30回の既定表示の設定は使わない
@@ -162,6 +164,10 @@ const Store = (() => {
 
   function setSetting(k, v) { get().settings[k] = v; save(); }
 
+  // ---------- 手入力のイベント ----------
+  function upsertEvent(e) { const d = get(); d.events = d.events.filter(x => x.id !== e.id); d.events.push(e); save(); }
+  function removeEvent(id) { const d = get(); d.events = d.events.filter(x => x.id !== id); save(); }
+
   // ---------- 書き出し・読み込み ----------
   function exportJson() {
     const d = get();
@@ -213,7 +219,7 @@ const Store = (() => {
     const d = get();
     if (mode === 'replace') {
       d.records = incoming.records;
-      if (isJson) { d.weekTargets = incoming.weekTargets; d.dayTargets = incoming.dayTargets; if (incoming.hasSettings) d.settings = incoming.settings; }
+      if (isJson) { d.weekTargets = incoming.weekTargets; d.dayTargets = incoming.dayTargets; d.events = incoming.events; if (incoming.hasSettings) d.settings = incoming.settings; }
       save();
       return { added: incoming.records.length, skipped: 0, invalid };
     }
@@ -224,6 +230,7 @@ const Store = (() => {
     }
     for (const t of incoming.weekTargets) if (!d.weekTargets.some(x => x.weekStart === t.weekStart)) d.weekTargets.push(t);
     for (const t of incoming.dayTargets) if (!d.dayTargets.some(x => x.date === t.date)) d.dayTargets.push(t);
+    for (const e of incoming.events || []) if (!d.events.some(x => x.id === e.id)) d.events.push(e);
     save();
     return { added, skipped, invalid };
   }
@@ -231,5 +238,5 @@ const Store = (() => {
   function clearAll() { const s = get().settings; db = empty(); db.settings = s; save(); }
 
   return { load, get, records, upsertRecord, deleteRecord, findDuplicate, findSameDateUnsure, newId, setWeekTarget, setDayTarget, targetOf,
-    setSetting, exportJson, exportCsv, importText, clearAll, normalizeRecord };
+    setSetting, upsertEvent, removeEvent, exportJson, exportCsv, importText, clearAll, normalizeRecord };
 })();

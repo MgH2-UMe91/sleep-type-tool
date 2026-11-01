@@ -36,8 +36,20 @@ function ask(msg, { ok = 'OK', danger = false, extra = '', cancel = 'やめる' 
     if (!hint) { hint = document.createElement('p'); hint.className = 'hint small muted'; $('#modalExtra').append(hint); }
     hint.textContent = `入力したら「${ok}」ボタンを押してください`;
   };
+  // ボタンの押下で直接答えを返す(閉じたイベントは遅れて届くことがあり、続けて開いた別の確認と混ざるため)。
+  // Esc キーなどボタン以外で閉じたときだけ、閉じたイベントで「やめる」として返す
   return new Promise(res => {
-    dlg.onclose = () => res(dlg.returnValue === 'ok' ? (inp ? inp.value : true) : false);
+    let done = false;
+    const finish = v => {
+      if (done) return;
+      done = true;
+      dlg.onclose = null; $('#modalOk').onclick = null; $('#modalCancel').onclick = null;
+      if (dlg.open) dlg.close();
+      res(v);
+    };
+    $('#modalOk').onclick = e => { e.preventDefault(); finish(inp ? inp.value : true); };
+    $('#modalCancel').onclick = e => { e.preventDefault(); finish(false); };
+    dlg.onclose = () => finish(false);
     dlg.returnValue = '';
     dlg.showModal();
   });
@@ -58,8 +70,8 @@ function applyTheme() {
 const APP_NAME = '睡眠タイプ管理ツール';
 const AUTHOR = 'ゆめくい';
 const FULL_NAME = `${APP_NAME} by ${AUTHOR}`;
-const TITLES = { home: APP_NAME, input: '入力', bulk: '一括取り込み', calendar: 'カレンダー', targets: '狙い設定', stats: '統計', data: 'データ管理', about: 'このアプリについて', menu: 'メニュー' };
-const TAB_OF = { bulk: 'menu', targets: 'menu', data: 'menu', about: 'menu' };
+const TITLES = { home: APP_NAME, input: '入力', bulk: '一括取り込み', calendar: 'カレンダー', targets: '狙い設定', stats: '統計', data: 'データ管理', about: 'このアプリについて', menu: 'メニュー', events: 'イベント' };
+const TAB_OF = { bulk: 'menu', targets: 'menu', data: 'menu', about: 'menu', events: 'menu' };
 let cleanup = null;
 
 function route() {
@@ -98,6 +110,10 @@ function viewHome(root) {
   const today = tonightYmd();
   const s = Store.get().settings;
   const plan = Calc.planFor(today);
+  const weekEvents = Events.forWeek(mondayOf(today));
+  // 次の(または今の)狙い週がタイプ不問のイベントと重なっていたら注意
+  const aimWeek = Store.get().weekTargets.filter(t => KINDS.includes(t.target) && addDays(t.weekStart, 6) >= today).sort((a, b) => a.weekStart < b.weekStart ? -1 : 1)[0];
+  const aimFree = aimWeek ? Events.forWeek(aimWeek.weekStart).filter(e => e.typeFree) : [];
   const a30n = Calc.averageAt(today, 'count');
   const missing = Calc.missingDays(today);
   const recs = Store.records();
@@ -116,8 +132,10 @@ function viewHome(root) {
     </div>
     <p class="small">${esc(plan.reason)}</p>
     ${plan.more ? `<p class="small muted">${esc(plan.more)}</p>` : ''}
+    ${aimFree.length ? `<p class="msg warn">${fmtDate(aimWeek.weekStart)}の狙い週は「${esc(aimFree[0].title)}」(タイプ不問)と重なっています。狙い週をずらすことも考えてみてください。</p>` : ''}
     ${plan.kind === 'unset' ? '<a class="btn" href="#targets">狙う週を決める</a>' : '<p class="small"><a href="#targets">狙う週を決める・変える</a></p>'}
   </section>
+  ${weekEvents.length ? `<section class="card"><h2 class="small-h">今週のイベント</h2>${eventListHtml(weekEvents, true)}</section>` : ''}
   ${needBackup ? `<section class="msg warn">${lastExp ? `最後のバックアップから${expDays}日たちました。` : 'まだバックアップを書き出していません。'}ブラウザのデータを消すと記録も消えます。<a href="#data">データ管理で書き出す</a></section>` : ''}
   ${missing.length ? `<section class="card"><h2>未入力の日</h2><p class="small muted">直近14日で記録がない日</p>
     <div class="row">${missing.map(d => `<a class="btn ghost small" href="#input?date=${d}">${fmtDate(d)}</a>`).join('')}</div></section>` : ''}
@@ -532,9 +550,11 @@ function viewCalendar(root, id, q) {
   const recs = Store.records(), d = Store.get();
   const byDate = {};
   recs.forEach(r => (byDate[r.date] = byDate[r.date] || []).push(r));
-  // 表示する範囲:過去は記録のある最初の月まで、未来は狙いの設定に合わせて(最低3か月先)
+  const evByDate = Events.byDate(); // 公式イベント(日付の切り替わりは午前4時)
+  // 表示する範囲:過去は記録のある最初の月まで、未来は狙いの設定とイベントに合わせて(最低3か月先)
   const targetDates = d.weekTargets.filter(t => KINDS.includes(t.target)).map(t => addDays(t.weekStart, 6))
-    .concat(d.dayTargets.filter(t => KINDS.includes(t.target)).map(t => t.date));
+    .concat(d.dayTargets.filter(t => KINDS.includes(t.target)).map(t => t.date))
+    .concat(Events.list().filter(e => e.to && e.to >= today).map(e => e.to));
   const firstMonth = [thisMonth, recs.length ? ymOf(recs[0].date) : thisMonth, ...targetDates.map(ymOf)].sort()[0];
   const lastMonth = [addMonths(thisMonth, 3), ...targetDates.map(t => addMonths(ymOf(t), 1))].sort().pop();
   const want = q.d && isYmd(q.d) ? q.d : null;
@@ -560,16 +580,20 @@ function viewCalendar(root, id, q) {
         if (ymOf(day) !== ym) { cells += '<span class="day blank"></span>'; continue; }
         const rs = byDate[day] || [];
         const dt = d.dayTargets.find(t => t.date === day);
-        cells += `<button type="button" class="day ${day === today ? 'today' : ''}" data-d="${day}"
-          aria-label="${fmtDateLong(day)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}${dt ? ' 狙い' + TARGET_LABEL[dt.target] : ''}">
+        const evs = evByDate[day] || [];
+        cells += `<button type="button" class="day ${day === today ? 'today' : ''} ${evs.length ? 'ev' : ''}" data-d="${day}"
+          aria-label="${fmtDateLong(day)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}${dt ? ' 狙い' + TARGET_LABEL[dt.target] : ''}${evs.length ? ' イベント ' + esc(evs.map(e => e.title).join('、')) : ''}">
           ${rs.length ? `<span class="mark" aria-hidden="true">${rs.map(() => '<i></i>').join('')}</span>` : ''}
           <span class="d">${Number(day.slice(8))}</span>
           ${rs.map(r => `<span class="tl ${r.type ? 't-' + r.type : 't-empty'}">${SHORT[r.type]}</span>`).join('')}
           ${dt ? `<span class="tg">狙${dt.target === 'none' ? 'なし' : SHORT[dt.target]}</span>` : ''}
         </button>`;
       }
+      // この週(この月の分)に開催中のイベント名を短くして並べる
+      const wevs = [];
+      for (let i = 0; i < 7; i++) { const day = addDays(ws, i); if (ymOf(day) === ym) for (const e of evByDate[day] || []) if (!wevs.includes(e)) wevs.push(e); }
       html += `<div class="cal-week ${wt ? 'aim k-' + wt.target : ''}">
-        ${wt ? `<span class="wk-tag t-${wt.target}">${TYPE_LABEL[wt.target]}を狙う週</span>` : ''}
+        ${wt || wevs.length ? `<div class="wk-tags">${wt ? `<span class="wk-tag t-${wt.target}">${TYPE_LABEL[wt.target]}を狙う週</span>` : ''}${wevs.map(e => `<span class="ev-tag ${e.typeFree ? 'free' : ''}">${esc(Events.shortTitle(e.title, 11))}${e.typeFree && !/不問/.test(e.title) ? '(不問)' : ''}</span>`).join('')}</div>` : ''}
         <div class="cal-days">${cells}</div></div>`;
     }
     return html + '</section>';
@@ -663,6 +687,7 @@ function calDetailHtml(d, rs) {
   return `<div class="stack">
     <h2>${fmtDateLong(d)}</h2>
     <p class="small">狙い:${tg ? `${TARGET_LABEL[tg.target]}(${tg.from === 'day' ? '日の設定' : '週の設定'})` : '未設定'}</p>
+    ${eventListHtml(Events.byDate()[d] || [])}
     <div class="list">${items || '<p class="small muted">記録はありません。</p>'}</div>
     <a class="btn ghost" href="#input?date=${d}">この日の記録を追加</a>
     <h3>この日時点の平均</h3>
@@ -685,6 +710,13 @@ function viewTargets(root) {
       const aim = wt && KINDS.includes(wt.target) ? wt.target : '';
       const overrides = d.dayTargets.filter(t => t.date >= ws && t.date <= addDays(ws, 6));
       // 狙わない週には、狙う週に向けたおすすめを自動で出す(今週は今夜の時点、ほかの週は月曜の時点で計算)
+      // 公式イベント。タイプ不問の週は狙い週にするともったいない。タイプが有利になる週は狙い週の候補
+      const wevs = Events.forWeek(ws);
+      const free = wevs.some(e => e.typeFree);
+      const boost = [...new Set(wevs.flatMap(e => e.boostTypes))];
+      const evHtml = wevs.length ? `<div class="stack">${wevs.map(e => `<span class="small"><span class="ev-tag ${e.typeFree ? 'free' : ''}">イベント</span> ${esc(e.title)} <span class="muted">${Events.periodLabel(e)}</span></span>`).join('')}
+        ${free ? `<p class="msg warn">タイプ不問の週${aim ? 'です。狙い週にするのはもったいないかもしれません' : ':狙い週にするのはもったいない'}</p>` : ''}
+        ${boost.length ? `<p class="msg ok">${boost.map(k => TYPE_LABEL[k]).join('・')}の狙い週の候補(イベントで${boost.map(k => TYPE_LABEL[k]).join('・')}が有利)</p>` : ''}</div>` : '';
       let note;
       if (aim) note = `<span class="tchip t-${aim}">${TYPE_LABEL[aim]}を狙う週</span>`;
       else {
@@ -698,12 +730,13 @@ function viewTargets(root) {
         const dt = d.dayTargets.find(t => t.date === day);
         days += `<label class="dayrow"><span>${fmtDate(day)}</span><select data-day="${day}" aria-label="${fmtDate(day)}の狙い">${opt(['uto', 'suya', 'gus', 'none'], dt && dt.target, '週の設定に従う')}</select></label>`;
       }
-      weeks += `<section class="week ${w === 0 ? 'cur' : ''} ${aim ? 'aim k-' + aim : ''}">
+      weeks += `<section class="week ${w === 0 ? 'cur' : ''} ${aim ? 'aim k-' + aim : ''} ${boost.length && !aim ? 'boost' : ''}">
         <div class="week-head">
           <span><b>${fmtDate(ws)}〜${fmtDate(addDays(ws, 6))}</b>${w === 0 ? '(今週)' : w === 1 ? '(来週)' : ''}</span>
           <select data-week="${ws}" aria-label="${fmtDate(ws)}の週の狙い">${opt(KINDS, aim, '狙わない')}</select>
         </div>
         <div>${note}</div>
+        ${evHtml}
         <details class="dayover" data-ws="${ws}" ${openDays.has(ws) || overrides.length ? 'open' : ''}><summary>日ごとに変える${overrides.length ? `(${overrides.length}日)` : ''}</summary><div class="stack">${days}</div></details>
       </section>`;
     }
@@ -794,7 +827,7 @@ function viewData(root) {
   </section>
   <section class="card">
     <h2>全削除</h2>
-    <p class="small muted">記録と狙いをすべて消します(設定は残ります)。先に書き出しておくのがおすすめです。</p>
+    <p class="small muted">記録・狙い・手で入れたイベントをすべて消します(設定は残ります)。先に書き出しておくのがおすすめです。</p>
     <button class="btn danger" id="wipe">すべて削除する</button>
   </section>`;
 
@@ -819,7 +852,7 @@ function viewData(root) {
   $('#theme', root).onchange = e => { Store.setSetting('theme', e.target.value); applyTheme(); };
   $('#wipe', root).onclick = async () => {
     const n = Store.get().records.length;
-    const v = await ask(`記録${n}件と狙いをすべて削除します。元に戻せません。続けるには「削除」と入力してください。`,
+    const v = await ask(`記録${n}件・狙い・手で入れたイベントをすべて削除します。元に戻せません。続けるには「削除」と入力してください。`,
       { ok: '削除する', danger: true, extra: '<input type="text" aria-label="確認の入力" placeholder="削除" autocomplete="off">' });
     if (v !== '削除') { if (v !== false) toast('入力が「削除」と一致しないため、やめました'); return; }
     Store.clearAll(); toast('すべて削除しました'); viewData(root);
@@ -863,12 +896,115 @@ function viewMenu(root) {
     <a href="#bulk"><span>一括取り込み<small>スクショを複数枚まとめて読み取る</small></span>›</a>
     <a href="#targets"><span>狙い設定<small>週ごと・日ごとの狙い</small></span>›</a>
     <a href="#stats"><span>統計<small>平均・重み付き平均・標準偏差</small></span>›</a>
+    <a href="#events"><span>イベント<small>公式イベントの確認・手で追加・修正</small></span>›</a>
     <a href="#data"><span>データ管理<small>書き出し・読み込み・設定・全削除</small></span>›</a>
     <a href="#about"><span>このアプリについて<small>非公式の明記・データの扱い</small></span>›</a>
   </section>`;
 }
 
-const VIEWS = { home: viewHome, input: viewInput, bulk: viewBulk, calendar: viewCalendar, targets: viewTargets, stats: viewStats, data: viewData, about: viewAbout, menu: viewMenu };
+// ================= 公式イベント =================
+// イベントの一覧(タイトル・期間・公式記事へのリンクだけ。公式の本文・画像は出さない)
+function eventListHtml(evs, compact = false) {
+  if (!evs.length) return '';
+  return `<div class="stack ev-list">${evs.map(e => `<div class="ev-item">
+    <div><b>${esc(e.title)}</b> <span class="small muted">${Events.periodLabel(e)}</span></div>
+    <div class="row small">
+      ${e.typeFree ? '<span class="ev-tag free">タイプ不問</span>' : ''}
+      ${e.boostTypes.map(k => `<span class="tchip t-${k}">${TYPE_LABEL[k]}が有利</span>`).join('')}
+      ${e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">公式のお知らせ</a>` : ''}
+      ${!compact && e.source !== 'official' ? `<span class="muted">${e.source === 'manual' ? '手入力' : '手で修正'}</span>` : ''}
+    </div></div>`).join('')}</div>`;
+}
+
+function viewEvents(root) {
+  let editing = null; // 修正中のイベントの id(新規なら null)
+
+  function formHtml(e) {
+    const v = e || { title: '', from: '', to: '', url: '', typeFree: false, boostTypes: [] };
+    return `<form class="card" id="evForm" novalidate>
+      <h2>${e ? 'イベントを修正' : 'イベントを手で追加'}</h2>
+      <label class="f">タイトル<input type="text" name="title" maxlength="80" value="${esc(v.title)}" required></label>
+      <div class="grid2">
+        <label class="f">始まる日<input type="date" name="from" value="${esc(v.from || '')}"></label>
+        <label class="f">終わる日<input type="date" name="to" value="${esc(v.to || '')}"></label>
+      </div>
+      <p class="small muted">日付はゲームの日付(午前4時に切り替わる)で入れてください。</p>
+      <label class="f">公式のお知らせのURL(任意)<input type="url" name="url" value="${esc(v.url || '')}" placeholder="https://"></label>
+      <label class="check"><input type="checkbox" name="typeFree" ${v.typeFree ? 'checked' : ''}>タイプ不問(どの睡眠タイプでもよい週)</label>
+      <div class="row small"><span class="muted">有利なタイプ:</span>${KINDS.map(k => `<label class="check"><input type="checkbox" name="boost" value="${k}" ${v.boostTypes.includes(k) ? 'checked' : ''}>${TYPE_LABEL[k]}</label>`).join('')}</div>
+      <p id="evMsg" class="msg"></p>
+      <div class="grid2"><button class="btn" type="submit">${e ? '修正を保存' : '追加する'}</button>${e ? '<button class="btn ghost" type="button" id="evCancel">やめる</button>' : ''}</div>
+    </form>`;
+  }
+
+  function render() {
+    const all = Events.list(true);
+    const cur = editing ? all.find(e => e.id === editing) : null;
+    const today = todayYmd();
+    const items = all.map(e => `<div class="ev-item ${e.hidden ? 'hidden-ev' : ''}" data-id="${esc(e.id)}">
+      <div><b>${esc(e.title)}</b> <span class="small muted">${Events.periodLabel(e)}${e.to && e.to < today ? '(終了)' : ''}</span></div>
+      <div class="row small">
+        <span class="muted">${{ official: '公式', edited: '公式を手で修正', manual: '手入力' }[e.source]}${e.hidden ? '・非表示' : ''}</span>
+        ${e.typeFree ? '<span class="ev-tag free">タイプ不問</span>' : ''}
+        ${e.boostTypes.map(k => `<span class="tchip t-${k}">${TYPE_LABEL[k]}が有利</span>`).join('')}
+        ${e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">公式のお知らせ</a>` : ''}
+      </div>
+      <div class="row">
+        <button class="btn ghost small" data-act="edit">修正</button>
+        <button class="btn ghost small" data-act="${e.hidden ? 'show' : 'hide'}">${e.hidden ? '表示に戻す' : '非表示'}</button>
+        ${e.source === 'edited' ? '<button class="btn ghost small" data-act="reset">公式の内容に戻す</button>' : ''}
+        ${e.source === 'manual' ? '<button class="btn ghost small" data-act="delete">削除</button>' : ''}
+      </div></div>`).join('');
+    root.innerHTML = `
+    <section class="card">
+      <p class="small">公式のお知らせから集めたイベントを、カレンダー・狙い設定・ホームに出します。表示するのはタイトル・期間・公式のお知らせへのリンクだけです。</p>
+      <p class="small muted">足りないイベントは手で追加でき、公式のイベントも手で修正・非表示にできます(この端末だけ。手で入れた内容が優先)。日付の切り替わりは午前4時です。</p>
+    </section>
+    ${formHtml(cur)}
+    <section class="card"><h2>イベントの一覧</h2>
+      <div class="list">${items || '<p class="small muted">まだイベントはありません。</p>'}</div>
+    </section>`;
+
+    const f = $('#evForm', root);
+    f.onsubmit = e => {
+      e.preventDefault();
+      const title = f.title.value.trim(), from = f.from.value, to = f.to.value || f.from.value;
+      const err = !title ? 'タイトルを入れてください' : !isYmd(from) ? '始まる日を入れてください' : to < from ? '終わる日が始まる日より前です'
+        : f.url.value && !/^https?:\/\//.test(f.url.value) ? 'URLは https:// から始めてください' : '';
+      if (err) { $('#evMsg', root).className = 'msg err'; $('#evMsg', root).textContent = err; return; }
+      const prev = (Store.get().events || []).find(x => x.id === editing) || {};
+      Store.upsertEvent({ ...prev, id: editing || 'm-' + Store.newId(), title, start: Events.dayStartIso(from), end: Events.dayEndIso(to),
+        url: f.url.value.trim(), typeFree: f.typeFree.checked, boostTypes: $$('input[name="boost"]:checked', f).map(x => x.value), hidden: !!prev.hidden });
+      toast(editing ? 'イベントを修正しました' : 'イベントを追加しました');
+      editing = null; render();
+    };
+    const cancel = $('#evCancel', root);
+    if (cancel) cancel.onclick = () => { editing = null; render(); };
+  }
+
+  const onClick = async e => {
+    const b = e.target.closest('button[data-act]'); if (!b) return;
+    const id = b.closest('.ev-item').dataset.id;
+    const ev = Events.list(true).find(x => x.id === id);
+    const mine = (Store.get().events || []).find(x => x.id === id);
+    const act = b.dataset.act;
+    if (act === 'edit') { editing = id; render(); $('#evForm', root).scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    if (act === 'hide' || act === 'show') {
+      // 公式のものは「非表示」の印だけを手入力側に持つ(公式の内容はそのまま)
+      Store.upsertEvent(mine ? { ...mine, hidden: act === 'hide' } : { id, hidden: true });
+      if (act === 'show' && mine && ev.source !== 'manual' && Object.keys(mine).every(k => k === 'id' || k === 'hidden')) Store.removeEvent(id);
+      toast(act === 'hide' ? '非表示にしました' : '表示に戻しました');
+    }
+    if (act === 'reset' && await ask('手で修正した内容を消して、公式の内容に戻しますか?', { ok: '戻す' })) { Store.removeEvent(id); toast('公式の内容に戻しました'); }
+    if (act === 'delete' && await ask(`「${ev.title}」を削除しますか?`, { ok: '削除する', danger: true })) { Store.removeEvent(id); toast('削除しました'); }
+    render();
+  };
+  root.addEventListener('click', onClick);
+  render();
+  return () => root.removeEventListener('click', onClick);
+}
+
+const VIEWS = { home: viewHome, input: viewInput, bulk: viewBulk, calendar: viewCalendar, targets: viewTargets, stats: viewStats, data: viewData, about: viewAbout, menu: viewMenu, events: viewEvents };
 
 Store.load();
 applyTheme();
@@ -878,3 +1014,6 @@ window.addEventListener('resize', setTopbarH);
 window.addEventListener('hashchange', route);
 window.addEventListener('storage', e => { if (e.key === STORAGE_KEY) { Store.load(); route(); } });
 route();
+// 公式イベントの最新を読み込む(配信前・読めないときは何もしない)。変わっていたら、イベントを出している画面を描き直す
+// カレンダーはスクロール位置が戻ってしまうので描き直さない(次に開いたときに反映)
+Events.load().then(changed => { if (changed && /^#(home|targets|events)?($|\?)/.test(location.hash || '#home')) route(); });

@@ -215,3 +215,20 @@ dialog form { display: flex; flex-direction: column; gap: 14px; }
 .week.k-suya { border-left-color: var(--t-suya); }
 .week.k-gus { border-left-color: var(--t-gus); }
 .week .dayover summary { color: var(--muted); font-size: .78rem; min-height: 28px; }
+
+/* 公式イベント */
+.wk-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0; }
+.wk-tags .wk-tag { margin: 0; }
+.ev-tag { display: inline-block; font-size: .68rem; font-weight: 700; padding: 0 6px; border-radius: 4px; background: #e6dcff; color: #3f2a86; white-space: nowrap; }
+.ev-tag.free { background: #ffe1d6; color: #8a2f12; }
+:root[data-theme="dark"] .ev-tag { background: #3a2f63; color: #ddd2ff; }
+:root[data-theme="dark"] .ev-tag.free { background: #4a2a1f; color: #ffc9b5; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .ev-tag { background: #3a2f63; color: #ddd2ff; }
+  :root:not([data-theme="light"]) .ev-tag.free { background: #4a2a1f; color: #ffc9b5; }
+}
+.cal-days button.day.ev::after { content: ""; position: absolute; left: 4px; right: 4px; bottom: 3px; height: 3px; border-radius: 2px; background: #8b6cf0; }
+.week.boost { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok) inset; }
+.ev-list .ev-item, .list .ev-item { display: flex; flex-direction: column; gap: 4px; }
+.hidden-ev { opacity: .55; }
+.small-h { font-size: .9rem; }
