@@ -26,8 +26,18 @@ function ask(msg, { ok = 'OK', danger = false, extra = '', cancel = 'やめる' 
   $('#modalOk').className = 'btn' + (danger ? ' danger' : '');
   $('#modalCancel').textContent = cancel;
   $('#modalCancel').classList.toggle('hidden', cancel === null);
+  // 確認の入力欄で Enter を押しても閉じない(既定ボタンが「やめる」なので、何も起きずに閉じて迷うのを防ぐ)。
+  // 安全のため Enter で削除は実行しない。押すべきボタンを案内する
+  const inp = $('#modalExtra input');
+  if (inp) inp.onkeydown = e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    let hint = $('#modalExtra .hint');
+    if (!hint) { hint = document.createElement('p'); hint.className = 'hint small muted'; $('#modalExtra').append(hint); }
+    hint.textContent = `入力したら「${ok}」ボタンを押してください`;
+  };
   return new Promise(res => {
-    dlg.onclose = () => res(dlg.returnValue === 'ok' ? ($('#modalExtra input') ? $('#modalExtra input').value : true) : false);
+    dlg.onclose = () => res(dlg.returnValue === 'ok' ? (inp ? inp.value : true) : false);
     dlg.returnValue = '';
     dlg.showModal();
   });
@@ -84,7 +94,8 @@ function avgBlock(st, label) {
 
 // ================= ホーム =================
 function viewHome(root) {
-  const today = todayYmd();
+  // 「今夜」の日付。早朝(NIGHT_START_HOUR 時より前)は前日の夜として扱う。入力の初期日付と同じ規則
+  const today = tonightYmd();
   const s = Store.get().settings;
   const adv = Calc.todayAdvice(today);
   const t = Store.targetOf(today);
@@ -166,7 +177,11 @@ function attachPct(root, onChange) {
     $$('.autotag', root).forEach(t => t.classList.add('hidden'));
     let err = '', hint = '';
     const outOfRange = manual.filter(el => !Number.isInteger(val(el)) || val(el) < 0 || val(el) > 100);
-    if (outOfRange.length) { err = '割合は0〜100の整数で入れてください'; outOfRange.forEach(el => el.classList.add('bad')); }
+    if (outOfRange.length) {
+      err = '割合は0〜100の整数で入れてください'; outOfRange.forEach(el => el.classList.add('bad'));
+      // 自動で入れた値は、元の値が不正になったので消す
+      inputs.filter(el => el.dataset.manual !== '1').forEach(el => { el.value = ''; el.classList.remove('auto'); });
+    }
     else if (manual.length === 2) {
       const other = inputs.find(el => el.dataset.manual !== '1');
       const sum = manual.reduce((a, el) => a + val(el), 0);
@@ -210,8 +225,8 @@ const pctFields = () => `<div class="grid3">${KINDS.map(k => `
 
 const typeOptions = sel => ['', 'none', 'uto', 'suya', 'gus'].map(t => `<option value="${t}" ${t === sel ? 'selected' : ''}>${TYPE_LABEL[t]}</option>`).join('');
 
-// 記録の初期日付:18時より前なら昨夜(=昨日が就寝日)
-const defaultDate = () => new Date().getHours() < 18 ? addDays(todayYmd(), -1) : todayYmd();
+// 記録の初期日付:いちばん最近に終わった夜(=ホームの「今夜」の前日)。早朝は前日扱いの規則をホームとそろえる
+const defaultDate = () => addDays(tonightYmd(), -1);
 
 function viewInput(root, id, q) {
   const editing = id ? Store.get().records.find(r => r.id === id) : null;
@@ -259,10 +274,13 @@ function viewInput(root, id, q) {
   const setSleep = m => { f.sleepH.value = m == null ? '' : Math.floor(m / 60); f.sleepM.value = m == null ? '' : m % 60; };
   const readSleep = () => (f.sleepH.value === '' && f.sleepM.value === '') ? null : Number(f.sleepH.value || 0) * 60 + Number(f.sleepM.value || 0);
   function syncSleep() {
-    const span = Calc.spanMin(f.bedTime.value, f.wakeTime.value);
+    const span0 = Calc.spanMin(f.bedTime.value, f.wakeTime.value);
+    // 就寝と起床が同じ時刻なら 0:00 を自動で入れない
+    const span = span0 === 0 ? null : span0;
     if (!sleepEdited) setSleep(span);
     const cur = readSleep();
-    $('#sleepHint', root).textContent = !sleepEdited ? (span != null ? '就寝〜起床から計算した値(ゲームの表示と違えば直してください)' : '')
+    $('#sleepHint', root).textContent = span0 === 0 ? '就寝と起床が同じ時刻です。時刻を確認してください'
+      : !sleepEdited ? (span != null ? '就寝〜起床から計算した値(ゲームの表示と違えば直してください)' : '')
       : span != null && cur != null && cur !== span ? `就寝〜起床は${minToHm(span)}(ゲームの表示を優先)` : '';
     $('#recalc', root).classList.toggle('hidden', !sleepEdited || span == null || cur === span);
   }
@@ -318,7 +336,8 @@ function viewInput(root, id, q) {
     if (!isYmd(f.date.value)) errs.push('日付を入れてください');
     if (!p.ok) errs.push('割合を確認してください(3つそろって合計100)');
     const sm = readSleep();
-    if (sm != null && (sm <= 0 || sm >= 1440 || Number(f.sleepM.value || 0) > 59)) errs.push('睡眠時間を確認してください');
+    const okPart = (v, max) => v === '' || (Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= max);
+    if (sm != null && (!okPart(f.sleepH.value, 23) || !okPart(f.sleepM.value, 59) || sm <= 0 || sm >= 1440)) errs.push('睡眠時間を確認してください(時間は0〜23、分は0〜59の整数)');
     if (errs.length) { fm.className = 'msg err'; fm.textContent = errs.join(' / '); return; }
     const cur = current();
     if (source !== 'manual' && ocrSnapshot && JSON.stringify(cur) !== ocrSnapshot) source = 'ocr_edited';
@@ -326,6 +345,7 @@ function viewInput(root, id, q) {
       autoField: p.autoField, memo: f.memo.value.trim(), source };
     const dup = Store.findDuplicate(rec);
     if (dup && !(await ask(`${fmtDate(rec.date)} ${rec.bedTime || ''} の記録がすでにあります。それでも保存しますか?`, { ok: '保存する' }))) return;
+    if (!dup && Store.findSameDateUnsure(rec) && !(await ask(`${fmtDate(rec.date)} の記録がすでにあります(就寝時刻がないため同じ夜か判断できません)。分割睡眠なら、そのまま保存してください。`, { ok: '保存する' }))) return;
     Store.upsertRecord(rec);
     toast(editing ? '更新しました' : '保存しました');
     location.hash = `#calendar?d=${rec.date}`;
@@ -359,11 +379,17 @@ function viewBulk(root) {
     const filled = { '日付が読めません': isYmd(v.date), '就寝・起床時刻が読めません': !!(v.bedTime && v.wakeTime), '睡眠時間が読めません': v.sleepMin != null, 'タイプの帯が見つかりません': !!v.type };
     const w = it.ocr.error ? [it.ocr.error] : it.ocr.warnings.filter(x => !filled[x]);
     if (!isYmd(v.date) && !w.includes('日付が読めません')) w.push('日付がありません');
+    if (it.saveError) w.push(it.saveError);
+    if (v.sleepBad) w.push('睡眠時間は 7:41 のように H:MM で入れてください');
     const pv = [v.utoPct, v.suyaPct, v.gusPct];
     if (pv.some(x => x === null || x === '' || isNaN(x))) w.push('割合が足りません');
+    else if (pv.some(x => !Number.isInteger(x) || x < 0 || x > 100)) w.push('割合は0〜100の整数にしてください');
     else if (pv.reduce((a, x) => a + Number(x), 0) !== 100) w.push('割合の合計が100ではありません');
     if (isYmd(v.date) && Store.findDuplicate({ ...v, id: null })) w.push('同じ日付・就寝時刻の記録がすでにあります');
-    if (items.some((o, j) => j < i && o.v.date === v.date && o.v.bedTime === v.bedTime)) w.push('この一覧の中に同じ日付・就寝時刻があります');
+    else if (isYmd(v.date) && Store.findSameDateUnsure({ ...v, id: null })) w.push('同じ日付の記録があります(分割睡眠なら そのまま保存)');
+    const others = items.filter((o, j) => j < i && !o.saved && o.v.date === v.date);
+    if (others.some(o => o.v.bedTime === v.bedTime)) w.push('この一覧の中に同じ日付・就寝時刻があります');
+    else if (others.some(o => !o.v.bedTime || !v.bedTime)) w.push('この一覧の中に同じ日付があります(分割睡眠なら そのまま保存)');
     return [...new Set(w)];
   }
 
@@ -388,14 +414,22 @@ function viewBulk(root) {
   function refresh() {
     items.forEach((it, i) => {
       const el = $(`.bulk-item[data-i="${i}"]`, root);
+      el.classList.toggle('hidden', !!it.saved);
+      if (it.saved) return;
       it.warnings = check(it, i);
       el.classList.toggle('need', it.warnings.length > 0);
       $('.w', el).textContent = it.warnings.length ? '要確認:' + it.warnings.join(' / ') : '';
-      // 読めなかった(空の)欄を強調
-      $$('[data-k]', el).forEach(inp => { if (inp.type !== 'checkbox') inp.classList.toggle('bad', inp.value === ''); });
+      // 読めなかった(空の)欄・不正な欄を強調
+      $$('[data-k]', el).forEach(inp => {
+        if (inp.type === 'checkbox') return;
+        const k = inp.dataset.k, v = it.v[k];
+        const bad = inp.value === '' || (k === 'sleep' && it.v.sleepBad) || (/Pct$/.test(k) && (!Number.isInteger(v) || v < 0 || v > 100));
+        inp.classList.toggle('bad', bad);
+      });
     });
-    const n = items.filter(it => it.include).length, need = items.filter(it => it.include && it.warnings.length).length;
-    $('#saveSum', root).textContent = `${items.length}件中 ${n}件を保存します${need ? `(うち要確認 ${need}件)` : ''}`;
+    const rest = items.filter(it => !it.saved);
+    const n = rest.filter(it => it.include).length, need = rest.filter(it => it.include && it.warnings.length).length;
+    $('#saveSum', root).textContent = `${rest.length}件中 ${n}件を保存します${need ? `(うち要確認 ${need}件)` : ''}`;
     $('#saveAll', root).disabled = n === 0;
   }
 
@@ -418,7 +452,7 @@ function viewBulk(root) {
       items.push(it);
       it.warnings = check(it, items.length - 1);
       // 重複・読み取り失敗はチェックを外しておく
-      it.include = !res.error && !it.warnings.some(w => /同じ日付|日付がありません|日付が読めません|割合が足りません/.test(w));
+      it.include = !res.error && !it.warnings.some(w => /同じ日付・就寝時刻|日付がありません|日付が読めません|割合が足りません|0〜100/.test(w));
       $('#results', root).insertAdjacentHTML('beforeend', itemHtml(it, items.length - 1));
       $(`.bulk-item[data-i="${items.length - 1}"] .dbg-slot`, root).append(debugDetails(res));
     }
@@ -431,30 +465,54 @@ function viewBulk(root) {
   $('#results', root).addEventListener('input', e => {
     const el = e.target, box = el.closest('.bulk-item'); if (!box) return;
     const it = items[Number(box.dataset.i)], k = el.dataset.k;
+    if (k !== 'include') it.saveError = ''; // 直したら前回の保存失敗の表示を消す
     if (k === 'include') it.include = el.checked;
-    else if (k === 'sleep') { const m = el.value.match(/^(\d{1,2}):(\d{2})$/); it.v.sleepMin = m && Number(m[2]) < 60 ? Number(m[1]) * 60 + Number(m[2]) : null; }
+    else if (k === 'sleep') {
+      // H:MM 以外の形は空扱いにせず「要確認」にする
+      const t = el.value.trim(), m = t.match(/^(\d{1,2}):(\d{2})$/);
+      const min = m && Number(m[2]) < 60 ? Number(m[1]) * 60 + Number(m[2]) : null;
+      it.v.sleepMin = min && min < 1440 ? min : null;
+      it.v.sleepBad = t !== '' && it.v.sleepMin === null;
+    }
     else if (k in PCT_KEY || /Pct$/.test(k)) it.v[k] = el.value === '' ? null : Number(el.value);
     else it.v[k] = el.value;
     if (k === 'type') box.querySelector('.tchip').outerHTML = tchip(it.v.type);
     refresh();
   });
 
+  // まとめて保存。1件ずつ保存し、失敗した件は要確認として一覧に残す。保存できた件は一覧から外す(二重保存しない)
   $('#saveAll', root).onclick = async () => {
-    const targets = items.filter(it => it.include);
+    const targets = items.filter(it => it.include && !it.saved);
     const need = targets.filter(it => it.warnings.length);
-    if (need.length && !(await ask(`要確認の記録が${need.length}件あります。そのまま保存しますか?(日付や割合が不正なものは保存されません)`, { ok: '保存する' }))) return;
-    let saved = 0, bad = 0;
+    if (need.length && !(await ask(`要確認の記録が${need.length}件あります。そのまま保存しますか?(日付・割合などが不正なものは保存されず、一覧に残ります)`, { ok: '保存する' }))) return;
+    let saved = 0, failed = 0, dup = 0;
     for (const it of targets) {
-      const v = it.v;
-      const rec = { id: Store.newId(), ...v, autoField: '', memo: '', source: 'ocr' };
-      const sum = [v.utoPct, v.suyaPct, v.gusPct].reduce((a, x) => a + (x ?? NaN), 0);
-      if (!isYmd(v.date) || sum !== 100) { bad++; continue; }
-      const o = it.ocr;
-      if (!o.error && (v.date !== o.date || v.utoPct !== o.rate[0] || v.suyaPct !== o.rate[1] || v.gusPct !== o.rate[2] || v.sleepMin !== o.sleepMin || v.type !== (o.type || '') || v.bedTime !== (o.bedTime || '') || v.wakeTime !== (o.wakeTime || ''))) rec.source = 'ocr_edited';
-      Store.upsertRecord(rec); saved++;
+      it.saveError = '';
+      try {
+        const v = it.v;
+        // 保存の直前にもう一度重複を確認する(この一覧で先に保存したもの・前に保存したものを含む)
+        if (Store.findDuplicate({ ...v, id: null })) { it.saveError = '同じ日付・就寝時刻の記録がすでにあるため保存しませんでした'; it.include = false; dup++; continue; }
+        if (v.sleepBad) throw new Error('睡眠時間の形が正しくありません');
+        const rec = { id: Store.newId(), date: v.date, bedTime: v.bedTime, wakeTime: v.wakeTime, sleepMin: v.sleepMin,
+          utoPct: v.utoPct, suyaPct: v.suyaPct, gusPct: v.gusPct, type: v.type, autoField: '', memo: '', source: 'ocr' };
+        const o = it.ocr;
+        if (!o.error && (v.date !== o.date || v.utoPct !== o.rate[0] || v.suyaPct !== o.rate[1] || v.gusPct !== o.rate[2] || v.sleepMin !== o.sleepMin || v.type !== (o.type || '') || v.bedTime !== (o.bedTime || '') || v.wakeTime !== (o.wakeTime || ''))) rec.source = 'ocr_edited';
+        Store.upsertRecord(rec); // 日付・時刻・割合が不正ならここで例外になる
+        it.saved = true; it.include = false; saved++;
+      } catch (err) {
+        it.saveError = '保存できませんでした(日付・時刻・割合の合計100・睡眠時間を確認してください)';
+        failed++;
+      }
     }
-    toast(`${saved}件保存しました${bad ? `(${bad}件は不正のため保存せず)` : ''}`);
-    location.hash = '#calendar';
+    // 結果は必ず知らせる
+    const left = failed + dup;
+    toast(`${saved}件保存しました` + (left ? `。${left}件は保存せず一覧に残しました` : ''));
+    if (!left) { location.hash = '#calendar'; return; }
+    $$('.bulk-item', root).forEach(el => { const it = items[Number(el.dataset.i)]; $('[data-k="include"]', el).checked = it.include; });
+    refresh();
+    $('#saveSum', root).textContent = `${saved}件を保存しました。残りの${items.filter(it => !it.saved).length}件は要確認です。直してからもう一度保存できます。`;
+    const first = items.find(it => !it.saved);
+    if (first) $(`.bulk-item[data-i="${items.indexOf(first)}"]`, root).scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 }
 
@@ -603,7 +661,7 @@ function viewData(root) {
   <section class="card">
     <h2>書き出し(バックアップ)</h2>
     <p class="small muted">記録はこの端末のブラウザの中にだけあります。ブラウザのデータを消すと記録も消えるので、ときどき書き出して保管してください。</p>
-    <p class="small">記録 ${d.records.length}件 · 最後の書き出し:${d.lastExportAt ? new Date(d.lastExportAt).toLocaleString('ja-JP') : 'なし'}</p>
+    <p class="small">記録 <span id="recCount">${d.records.length}</span>件 · 最後の書き出し:${d.lastExportAt ? new Date(d.lastExportAt).toLocaleString('ja-JP') : 'なし'}</p>
     <div class="grid2"><button class="btn" id="expJson">JSONで書き出す</button><button class="btn ghost" id="expCsv">CSVで書き出す</button></div>
     <p class="small muted">JSON:狙い・設定も含む完全なバックアップ。CSV:記録だけ(表計算ソフト用)。</p>
   </section>
@@ -643,7 +701,8 @@ function viewData(root) {
     try {
       const r = Store.importText(await file.text(), file.name, mode);
       m.className = 'msg ok';
-      m.textContent = `${r.added}件を読み込みました` + (r.skipped ? `(重複${r.skipped}件は除外)` : '') + (r.invalid ? `。形式が不正な${r.invalid}件は読み込めませんでした` : '');
+      m.textContent = `${r.added}件を読み込みました` + (r.skipped ? `(重複${r.skipped}件は除外)` : '') + (r.invalid ? `。形式が不正な${r.invalid}件は読み込めませんでした(日付・時刻・割合の合計100・睡眠時間を確認してください)` : '');
+      $('#recCount', root).textContent = Store.get().records.length;
       applyTheme();
     } catch (e) { m.className = 'msg err'; m.textContent = '読み込めませんでした:' + e.message; }
   };

@@ -52,10 +52,7 @@ const Calc = (() => {
     return { type: bestDiff < NEAR_AVG_PT ? 'none' : best, diffs, prior };
   }
 
-  // 狙うタイプを平均から下げたいとき、代わりに多めにするタイプ(簡易ルール)
-  const COUNTER = { uto: 'gus', suya: 'gus', gus: 'uto' };
-
-  // ホームの「今日の狙い」。date の夜(就寝日=date)について
+  // ホームの「今夜の狙い」。date の夜(就寝日=date)について
   function todayAdvice(date) {
     const range = Store.get().settings.defaultRange;
     const avg = averageAt(date, range);
@@ -75,19 +72,23 @@ const Calc = (() => {
       };
     }
 
-    // 7日以内に狙いの日があれば、それまでは狙うタイプを少なめにして平均を下げておく
+    // 7日以内の狙いをすべて見る。一番近い狙いに向けて、そのタイプを少なめにして平均を下げておく(要件F5)
+    const upcoming = [];
     for (let i = 1; i <= 7; i++) {
       const d = addDays(date, i);
       const u = Store.targetOf(d);
-      if (u && u.target !== 'none') {
-        const k = u.target, c = COUNTER[k];
-        const when = mondayOf(d) !== mondayOf(date) ? `来週(${fmtMd(d)}〜)` : `${i}日後(${fmtMd(d)})`;
-        return {
-          kind: 'prep', type: c, aim: k,
-          title: `今夜は「${TYPE_LABEL[c]}」多めに`,
-          reason: `${when}は${TYPE_LABEL[k]}狙い。それまでは${TYPE_LABEL[c]}多めで、${TYPE_LABEL[k]}の平均(今は${pct(k)})を下げておきましょう。平均が低いほど、狙う夜に「平均より多い」になりやすい(推定)。`,
-        };
-      }
+      if (u && u.target !== 'none') upcoming.push({ d, i, k: u.target });
+    }
+    if (upcoming.length) {
+      const when = x => mondayOf(x.d) !== mondayOf(date) ? `来週の${fmtMd(x.d)}` : `${x.i}日後(${fmtMd(x.d)})`;
+      const near = upcoming[0], k = near.k;
+      const other = upcoming.find(x => x.k !== k);
+      return {
+        kind: 'prep', type: k,
+        title: `今夜は「${TYPE_LABEL[k]}」を少なめに`,
+        reason: `${when(near)}から${TYPE_LABEL[k]}狙い。それまでは${TYPE_LABEL[k]}を少なめにして、${TYPE_LABEL[k]}の平均(今は${pct(k)})を下げておきましょう。平均が低いほど、狙う夜に「平均より多い」になりやすい(推定)。`
+          + (other ? `(${when(other)}は${TYPE_LABEL[other.k]}狙いもあります)` : ''),
+      };
     }
 
     // 狙い未設定:平均が一番低いタイプをおすすめ(簡易ルール)

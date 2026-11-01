@@ -25,8 +25,20 @@ const todayYmd = () => ymd(new Date());
 // 週は月曜始まり
 const mondayOf = s => { const d = parseYmd(s); const wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return ymd(d); };
 const daysBetween = (a, b) => Math.round((parseYmd(b) - parseYmd(a)) / 86400000);
-const isYmd = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(parseYmd(s));
-const isHm = s => typeof s === 'string' && /^\d{1,2}:\d{2}$/.test(s);
+// 実在する日付か(2026-02-30 のような繰り上がりは不可)
+const isYmd = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && ymd(parseYmd(s)) === s;
+// 時刻の形と範囲(0:00〜23:59)
+const isHm = s => typeof s === 'string' && /^\d{1,2}:\d{2}$/.test(s) && Number(s.split(':')[0]) < 24 && Number(s.split(':')[1]) < 60;
+// 日付の表記ゆれをそろえる(Excelで保存したCSVの 2026/10/6 なども受け付ける)。不正なら null
+const toYmd = s => {
+  const m = String(s ?? '').trim().match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (!m) return null;
+  const v = `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
+  return isYmd(v) ? v : null;
+};
+// 「夜」の日付の区切り。この時刻より前(早朝)は前日の夜として扱う。ホームの「今夜」と入力の初期日付で共通
+const NIGHT_START_HOUR = 5;
+const tonightYmd = (now = new Date()) => now.getHours() < NIGHT_START_HOUR ? addDays(ymd(now), -1) : ymd(now);
 const hmToMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
 const minToHm = n => `${Math.floor(n / 60)}:${pad2(n % 60)}`;
 const nowIso = () => new Date().toISOString();
@@ -54,19 +66,28 @@ const Store = (() => {
   const TARGETS = ['uto', 'suya', 'gus', 'none'];
   const TYPES = ['none', 'uto', 'suya', 'gus', ''];
 
-  // 記録1件を正しい形にそろえる。日付か割合がおかしいものは捨てる
+  // 記録1件を正しい形にそろえる。値がおかしいもの(実在しない日付、範囲外の時刻、
+  // 整数でない割合、合計が100でない割合、0以下の睡眠時間)は null を返して取り込まない
   function normalizeRecord(r) {
-    if (!r || !isYmd(r.date)) return null;
-    const num = v => (v === '' || v === null || v === undefined || isNaN(Number(v))) ? null : Math.round(Number(v));
+    if (!r) return null;
+    const date = toYmd(r.date);
+    if (!date) return null;
+    const blank = v => v === '' || v === null || v === undefined;
+    // 空なら null、整数でなければ NaN(=不正)
+    const int = v => blank(v) ? null : (Number.isInteger(Number(v)) ? Number(v) : NaN);
+    const time = v => blank(v) ? '' : (isHm(String(v).trim()) ? String(v).trim().padStart(5, '0') : null);
+    const bedTime = time(r.bedTime), wakeTime = time(r.wakeTime), sleepMin = int(r.sleepMin);
+    if (bedTime === null || wakeTime === null) return null;
+    if (Number.isNaN(sleepMin) || (sleepMin !== null && (sleepMin <= 0 || sleepMin >= 1440))) return null;
     const rec = {
       id: r.id ? String(r.id) : newId(),
-      date: r.date,
-      bedTime: isHm(r.bedTime) ? r.bedTime.padStart(5, '0') : '',
-      wakeTime: isHm(r.wakeTime) ? r.wakeTime.padStart(5, '0') : '',
-      sleepMin: num(r.sleepMin),
-      utoPct: num(r.utoPct),
-      suyaPct: num(r.suyaPct),
-      gusPct: num(r.gusPct),
+      date,
+      bedTime,
+      wakeTime,
+      sleepMin,
+      utoPct: int(r.utoPct),
+      suyaPct: int(r.suyaPct),
+      gusPct: int(r.gusPct),
       autoField: ['uto', 'suya', 'gus'].includes(r.autoField) ? r.autoField : '',
       type: TYPES.includes(r.type) ? r.type : '',
       source: ['manual', 'ocr', 'ocr_edited'].includes(r.source) ? r.source : 'manual',
@@ -74,7 +95,9 @@ const Store = (() => {
       createdAt: r.createdAt || nowIso(),
       updatedAt: r.updatedAt || r.createdAt || nowIso(),
     };
-    if ([rec.utoPct, rec.suyaPct, rec.gusPct].some(v => v === null || v < 0 || v > 100)) return null;
+    const pct = [rec.utoPct, rec.suyaPct, rec.gusPct];
+    if (pct.some(v => v === null || Number.isNaN(v) || v < 0 || v > 100)) return null;
+    if (pct[0] + pct[1] + pct[2] !== 100) return null;
     return rec;
   }
 
@@ -108,6 +131,10 @@ const Store = (() => {
   function deleteRecord(id) { const d = get(); d.records = d.records.filter(r => r.id !== id); save(); }
   function findDuplicate(r) {
     return get().records.find(x => x.id !== r.id && sameSleep(x, r));
+  }
+  // 就寝時刻がどちらか空で、同じ日付の記録(同じ夜の二重登録かもしれない。分割睡眠ならそのままでよい)
+  function findSameDateUnsure(r) {
+    return get().records.find(x => x.id !== r.id && x.date === r.date && !sameSleep(x, r) && (!x.bedTime || !r.bedTime));
   }
 
   // ---------- 狙い ----------
@@ -173,7 +200,8 @@ const Store = (() => {
     let incoming;
     const isJson = /\.json$/i.test(fileName) || /^\s*\{/.test(text);
     if (isJson) {
-      const raw = JSON.parse(text);
+      let raw;
+      try { raw = JSON.parse(text); } catch (e) { throw new Error('JSONの形式が正しくありません(ファイルが壊れているか、このアプリで書き出したファイルではないようです)'); }
       if (!raw || !Array.isArray(raw.records)) throw new Error('このアプリのJSONではないようです');
       incoming = { rawCount: raw.records.length, ...migrate(raw), hasSettings: !!raw.settings };
     } else {
@@ -202,6 +230,6 @@ const Store = (() => {
 
   function clearAll() { const s = get().settings; db = empty(); db.settings = s; save(); }
 
-  return { load, get, records, upsertRecord, deleteRecord, findDuplicate, newId, setWeekTarget, setDayTarget, targetOf,
+  return { load, get, records, upsertRecord, deleteRecord, findDuplicate, findSameDateUnsure, newId, setWeekTarget, setDayTarget, targetOf,
     setSetting, exportJson, exportCsv, importText, clearAll, normalizeRecord };
 })();

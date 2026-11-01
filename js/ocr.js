@@ -241,8 +241,12 @@ const Ocr = (() => {
       res.warnings.push('割合の1つが読めず、残り2つから計算しました');
     }
     // 文字認識の値と色帯の比率が±2%以上ずれたら要確認(しきい値は仮)
-    if (res.bar) res.rate.forEach((v, i) => { if (v === null || Math.abs(v - res.bar[i]) >= 2) res.rateMismatch = true; });
-    if (res.rateMismatch) res.warnings.push(`割合が色帯の比率(${res.bar ? res.bar.join('/') : '—'})と合いません`);
+    const unread = res.rate.filter(v => v === null).length;
+    if (unread >= 2) res.warnings.push(unread === 3 ? '割合が読めません' : '割合が2つ以上読めません');
+    else {
+      if (res.bar) res.rate.forEach((v, i) => { if (Math.abs(v - res.bar[i]) >= 2) res.rateMismatch = true; });
+      if (res.rateMismatch) res.warnings.push(`割合が色帯の比率(${res.bar ? res.bar.join('/') : '—'})と合いません`);
+    }
     if (res.rate.every(v => v !== null) && res.rate.reduce((a, v) => a + v, 0) !== 100) res.warnings.push('割合の合計が100になりません');
 
     // タイプ(帯の色)
