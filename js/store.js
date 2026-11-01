@@ -12,7 +12,6 @@ const RECORD_COLUMNS = ['id', 'date', 'bedTime', 'wakeTime', 'sleepMin', 'utoPct
 
 const DEFAULT_SETTINGS = {
   backupRemindDays: 30,     // 最後の書き出しから何日でお知らせするか
-  defaultRange: 'days',     // 'days' = 直近30日 / 'count' = 直近30回
   theme: 'auto',            // 'auto' / 'light' / 'dark'
 };
 
@@ -59,6 +58,7 @@ const Store = (() => {
     out.dayTargets = Array.isArray(d.dayTargets) ? d.dayTargets.filter(t => isYmd(t.date) && TARGETS.includes(t.target)) : [];
     out.settings = { ...DEFAULT_SETTINGS, ...(d.settings || {}) };
     delete out.settings.includeNaps; // 試作時の設定(分割睡眠を昼寝と誤解していた)。今は使わない
+    delete out.settings.defaultRange; // 平均は直近30回に統一したので、30日/30回の既定表示の設定は使わない
     out.lastExportAt = d.lastExportAt || null;
     return out;
   }

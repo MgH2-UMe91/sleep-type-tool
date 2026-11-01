@@ -11,7 +11,7 @@ const NEAR_AVG_PT = 5;
 
 const Calc = (() => {
   // 基準日(含む)までの記録から、集計対象を選ぶ
-  // range: 'days' = 基準日を含む過去30日 / 'count' = 新しい順に30件
+  // range: 'count' = 新しい順に30件(アプリの平均の基準) / 'days' = 基準日を含む過去30日(統計画面の参考表示だけ)
   // before: 指定した記録より前だけ(その夜の推定タイプ用)
   // 分割睡眠で1日に複数件あると、30日と30回で対象が変わる
   function pick(all, refDate, range, opts = {}) {
@@ -43,7 +43,7 @@ const Calc = (() => {
   const averageAt = (refDate, range, opts) => stats(pick(Store.records(), refDate, range, opts));
 
   // その夜の推定タイプ:その夜より前の平均と比べ、平均より一番多く出たもの。差が小さければ「とくちょうなし」
-  function estimateType(rec, range) {
+  function estimateType(rec, range = 'count') {
     const prior = stats(pick(Store.records(), rec.date, range, { before: rec }));
     if (!prior.n) return null;
     let best = null, bestDiff = -Infinity;
@@ -54,9 +54,9 @@ const Calc = (() => {
 
   // ホームの「今夜の狙い」。date の夜(就寝日=date)について
   function todayAdvice(date) {
-    const range = Store.get().settings.defaultRange;
-    const avg = averageAt(date, range);
-    const rangeLabel = range === 'days' ? '直近30日' : '直近30回';
+    // 平均の基準は直近30回
+    const avg = averageAt(date, 'count');
+    const rangeLabel = '直近30回の';
     const pct = k => avg[k] ? avg[k].mean.toFixed(1) + '%' : '—';
     const t = Store.targetOf(date);
 

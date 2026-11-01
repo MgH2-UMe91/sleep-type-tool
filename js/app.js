@@ -99,7 +99,7 @@ function viewHome(root) {
   const s = Store.get().settings;
   const adv = Calc.todayAdvice(today);
   const t = Store.targetOf(today);
-  const a30d = Calc.averageAt(today, 'days'), a30n = Calc.averageAt(today, 'count');
+  const a30n = Calc.averageAt(today, 'count');
   const missing = Calc.missingDays(today);
   const recs = Store.records();
   const lastExp = Store.get().lastExportAt;
@@ -118,10 +118,9 @@ function viewHome(root) {
   ${missing.length ? `<section class="card"><h2>未入力の日</h2><p class="small muted">直近14日で記録がない日</p>
     <div class="row">${missing.map(d => `<a class="btn ghost small" href="#input?date=${d}">${fmtDate(d)}</a>`).join('')}</div></section>` : ''}
   <section class="card">
-    <h2>直近の平均</h2>
-    ${avgBlock(a30d, '直近30日')}
+    <h2>直近30回の平均</h2>
     ${avgBlock(a30n, '直近30回')}
-    <p class="small muted">分割睡眠で1日に2件あると、30日と30回で差が出ます · <a href="#stats">くわしい統計</a></p>
+    <p class="small muted"><a href="#stats">くわしい統計</a></p>
   </section>
   ${last ? `<section class="card"><h2>最新の記録</h2>
     <div class="row">${tchip(last.type)}<span>${fmtDate(last.date)}</span>
@@ -520,7 +519,6 @@ function viewBulk(root) {
 function viewCalendar(root, id, q) {
   let sel = q.d && isYmd(q.d) ? q.d : null;
   let month = (sel || todayYmd()).slice(0, 7);
-  const range = () => Store.get().settings.defaultRange;
 
   function render() {
     const recs = Store.records();
@@ -561,9 +559,9 @@ function viewCalendar(root, id, q) {
 
   function detailHtml(d, rs) {
     const tg = Store.targetOf(d);
-    const a30d = Calc.averageAt(d, 'days'), a30n = Calc.averageAt(d, 'count');
+    const a30n = Calc.averageAt(d, 'count');
     const items = rs.map(r => {
-      const est = Calc.estimateType(r, range());
+      const est = Calc.estimateType(r, 'count');
       return `<div class="stack">
         <div class="row">${rs.length > 1 ? `<span class="ref">${rs.indexOf(r) + 1}件目</span>` : ''}${tchip(r.type)}<span class="small muted">${r.bedTime || '--:--'}〜${r.wakeTime || '--:--'}</span>
           <span class="small">${r.sleepMin != null ? minToHm(r.sleepMin) : ''}</span><a class="btn ghost small" href="#input/${r.id}" style="margin-left:auto">直す</a></div>
@@ -584,7 +582,6 @@ function viewCalendar(root, id, q) {
       <div class="list">${items || '<p class="small muted">記録はありません。</p>'}</div>
       <a class="btn ghost" href="#input?date=${d}">この日の記録を追加</a>
       <h3>この日時点の平均</h3>
-      ${avgBlock(a30d, '直近30日')}
       ${avgBlock(a30n, '直近30回')}
     </div>`;
   }
@@ -624,14 +621,16 @@ function viewTargets(root) {
 
 // ================= 統計 =================
 function viewStats(root) {
+  // 平均の基準は直近30回。直近30日は将来の検証用の参考表示(切り替えは保存しない)
+  let range = 'count';
   function render() {
-    const s = Store.get().settings, range = s.defaultRange, today = todayYmd();
+    const today = tonightYmd();
     const st = Calc.averageAt(today, range);
-    const label = range === 'days' ? '直近30日' : '直近30回';
+    const label = range === 'days' ? '参考:直近30日' : '直近30回';
     root.innerHTML = `
     <div class="seg" role="group" aria-label="集計範囲">
-      <button data-r="days" aria-pressed="${range === 'days'}">直近30日</button>
       <button data-r="count" aria-pressed="${range === 'count'}">直近30回</button>
+      <button data-r="days" aria-pressed="${range === 'days'}">参考:直近30日</button>
     </div>
     <section class="card">
       <div class="row"><h2>${label}</h2><span class="small muted">${st.n}件 · 基準日 ${fmtDate(today)}</span>${st.isReference ? '<span class="ref">参考値(30件未満)</span>' : ''}</div>
@@ -643,12 +642,11 @@ function viewStats(root) {
       <ul class="small muted" style="margin:0;padding-left:1.2em">
         <li>重み付き平均:睡眠時間で重み付け(Σ割合×睡眠分 ÷ Σ睡眠分)。分割睡眠の短い方の影響が小さくなります。睡眠時間のない記録は除外。</li>
         <li>標準偏差:母標準偏差(件数で割る)。</li>
-        <li>直近30日:今日を含む過去30日の全記録。直近30回:新しい順に30件。ゲームがどちらで判定しているかは不明(推定)。</li>
-        <li>分割睡眠で同じ日付に2件ある日は、30日では両方が入り、30回では1件ずつ数えます。</li>
+        <li>直近30回:新しい順に30件。ホーム・カレンダー・推定タイプ・今夜の狙いはすべてこの平均を使います。</li>
+        <li>参考:直近30日:基準日を含む過去30日の全記録(検証用。分割睡眠の日は2件とも入ります)。</li>
       </ul>
-    </section>
-    <p class="small muted">ここでの切り替えは、ホームの提案に使う平均にも反映されます。</p>`;
-    $$('.seg button', root).forEach(b => b.onclick = () => { Store.setSetting('defaultRange', b.dataset.r); render(); });
+    </section>`;
+    $$('.seg button', root).forEach(b => b.onclick = () => { range = b.dataset.r; render(); });
   }
   render();
 }
