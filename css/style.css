@@ -237,9 +237,9 @@ dialog form { display: flex; flex-direction: column; gap: 14px; }
 .moon-tag { display: inline-block; font-size: .68rem; font-weight: 700; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); white-space: nowrap; }
 .moon-tag.full { border-color: #c9a227; }
 .moon-tag.new { border-color: #6b7280; }
-.cal-days button.day .moon { position: absolute; top: 2px; left: 3px; font-size: .52rem; line-height: 1.2; color: var(--muted); font-weight: 700; letter-spacing: -.02em; }
+.cal-days button.day .moon { position: absolute; top: 2px; left: 4px; font-size: .62rem; line-height: 1.2; color: var(--muted); }
 .cal-days button.day .moon.full { color: #b8901a; }
-.cal-days button.day .moon.exact { color: var(--ink); text-decoration: underline; } /* 満月・新月の当日は下線 */
+.cal-days button.day .moon.exact { color: var(--ink); font-weight: 700; } /* 満月・新月の当日は濃く */
 .cal-days button.day .d { margin-top: 8px; }
 
 /* カレンダーの週の帯(イベント・GSD/NMD)。日の列にそろえ、重なる帯は下の段に積む */
@@ -252,7 +252,7 @@ dialog form { display: flex; flex-direction: column; gap: 14px; }
 }
 .wk-bars .ev-bar { border: 0; background: #e6dcff; color: #3f2a86; }
 .wk-bars .ev-bar.free { background: #ffe1d6; color: #8a2f12; }
-.wk-bars .moon-bar { border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.wk-bars .moon-bar { border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-align: center; padding: 0 2px; }
 .wk-bars .moon-bar.full { border-color: #c9a227; }
 .wk-bars .moon-bar.new { border-color: #6b7280; }
 :root[data-theme="dark"] .wk-bars .ev-bar { background: #3a2f63; color: #ddd2ff; }

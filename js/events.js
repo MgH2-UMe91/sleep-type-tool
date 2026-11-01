@@ -86,5 +86,12 @@ const Events = (() => {
     return m && m[0].length < n - 2 ? t.slice(0, n - m[0].length - 1) + '…' + m[0] : t.slice(0, n - 1) + '…';
   };
 
-  return { load, list, official, byDate, forWeek, gameDate, dayStartIso, dayEndIso, periodLabel, shortTitle, clean, setRemoteForTest: l => { remote = l.map(clean).filter(Boolean); } };
+  // 表示用のタイトル:ニュームーンデー → NMD、グッドスリープデー → GSD(元のデータは変えない)
+  const displayTitle = t => String(t).replace(/ニュームーンデー/g, 'NMD').replace(/グッドスリープデー/g, 'GSD');
+  // ニュームーンデー・グッドスリープデーのイベントか(これらには「闇鍋」の表示を付けない)
+  const isMoonDay = e => /ニュームーンデー|グッドスリープデー/.test(e.title);
+  // 「闇鍋」として表示するか(typeFree で、NMD・GSD のイベントではないもの)
+  const isYami = e => !!e.typeFree && !isMoonDay(e);
+
+  return { load, list, official, byDate, forWeek, gameDate, dayStartIso, dayEndIso, periodLabel, shortTitle, clean, displayTitle, isMoonDay, isYami, setRemoteForTest: l => { remote = l.map(clean).filter(Boolean); } };
 })();

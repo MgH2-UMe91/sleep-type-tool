@@ -71,7 +71,7 @@ const APP_NAME = '睡眠タイプ管理ツール';
 const FOR_GAME = 'ポケモンスリープ';
 const FULL_NAME = `${APP_NAME} for ${FOR_GAME}`;
 // 公式イベントの typeFree(どのタイプのポケモンも出る)の呼び名。内部のデータ名は typeFree のまま
-const YAMI = '闇鍋';
+const YAMI = '【闇鍋】';
 const YAMI_NOTE = 'どのタイプのポケモンも出る';
 const TITLES = { home: APP_NAME, input: '入力', bulk: '一括取り込み', calendar: 'カレンダー', targets: '狙い設定', stats: '統計', data: 'データ管理', about: 'このアプリについて', menu: 'メニュー', events: 'イベント' };
 const TAB_OF = { bulk: 'menu', targets: 'menu', data: 'menu', about: 'menu', events: 'menu' };
@@ -116,7 +116,7 @@ function viewHome(root) {
   const weekEvents = Events.forWeek(mondayOf(today));
   // 次の(または今の)狙い週が闇鍋(typeFree)のイベントと重なっていたら注意
   const aimWeek = Store.get().weekTargets.filter(t => KINDS.includes(t.target) && addDays(t.weekStart, 6) >= today).sort((a, b) => a.weekStart < b.weekStart ? -1 : 1)[0];
-  const aimFree = aimWeek ? Events.forWeek(aimWeek.weekStart).filter(e => e.typeFree) : [];
+  const aimFree = aimWeek ? Events.forWeek(aimWeek.weekStart).filter(Events.isYami) : [];
   const a30n = Calc.averageAt(today, 'count');
   const missing = Calc.missingDays(today);
   const recs = Store.records();
@@ -135,7 +135,7 @@ function viewHome(root) {
     </div>
     <p class="small">${esc(plan.reason)}</p>
     ${plan.more ? `<p class="small muted">${esc(plan.more)}</p>` : ''}
-    ${aimFree.length ? `<p class="msg warn">${fmtDate(aimWeek.weekStart)}の狙い週は「${esc(aimFree[0].title)}」(闇鍋:${YAMI_NOTE}イベント)と重なっています。狙い週をずらすことも考えてみてください。</p>` : ''}
+    ${aimFree.length ? `<p class="msg warn">${fmtDate(aimWeek.weekStart)}の狙い週は「${esc(Events.displayTitle(aimFree[0].title))}」(${YAMI}:${YAMI_NOTE}イベント)と重なっています。狙い週をずらすことも考えてみてください。</p>` : ''}
     ${plan.kind === 'unset' ? '<a class="btn" href="#targets">狙う週を決める</a>' : '<p class="small"><a href="#targets">狙う週を決める・変える</a></p>'}
   </section>
   ${(() => {
@@ -559,6 +559,15 @@ function viewCalendar(root, id, q) {
   const byDate = {};
   recs.forEach(r => (byDate[r.date] = byDate[r.date] || []).push(r));
   const evByDate = Events.byDate(); // 公式イベント(日付の切り替わりは午前4時)
+  // 週をまたぐイベントは、期間の日がいちばん多く入る「週×月」の行にだけ帯を出す(同じ数なら早いほう)。
+  // 例:日曜に始まって月〜火に続くイベントは、日曜1日だけの週ではなく次の週に出す
+  const slotOf = {};
+  for (const e of Events.list()) {
+    if (!e.from) continue;
+    const cnt = {};
+    for (let x = e.from, n = 0; x <= e.to && n < 62; x = addDays(x, 1), n++) { const k = mondayOf(x) + '|' + ymOf(x); cnt[k] = (cnt[k] || 0) + 1; }
+    slotOf[e.id] = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || (a < b ? -1 : 1))[0];
+  }
   // 表示する範囲:過去は記録のある最初の月まで、未来は狙いの設定とイベントに合わせて(最低3か月先)
   const targetDates = d.weekTargets.filter(t => KINDS.includes(t.target)).map(t => addDays(t.weekStart, 6))
     .concat(d.dayTargets.filter(t => KINDS.includes(t.target)).map(t => t.date))
@@ -591,8 +600,8 @@ function viewCalendar(root, id, q) {
         const evs = evByDate[day] || [];
         const mn = Moon.markOf(day);
         cells += `<button type="button" class="day ${day === today ? 'today' : ''} ${evs.length ? 'ev' : ''}" data-d="${day}"
-          aria-label="${fmtDateLong(day)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}${dt ? ' 狙い' + TARGET_LABEL[dt.target] : ''}${evs.length ? ' イベント ' + esc(evs.map(e => e.title).join('、')) : ''}${mn ? ` ${mn.mark}(${MOON_NAME[mn.phase]}${mn.exact ? 'の日' : 'の前後'})` : ''}">
-          ${mn ? `<span class="moon ${mn.phase} ${mn.exact ? 'exact' : ''}" aria-hidden="true">${MOON_ICON[mn.phase]}${mn.mark}</span>` : ''}
+          aria-label="${fmtDateLong(day)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}${dt ? ' 狙い' + TARGET_LABEL[dt.target] : ''}${evs.length ? ' イベント ' + esc(evs.map(e => Events.displayTitle(e.title)).join('、')) : ''}${mn ? ` ${mn.mark}(${MOON_NAME[mn.phase]}${mn.exact ? 'の日' : 'の前後'})` : ''}">
+          ${mn ? `<span class="moon ${mn.phase} ${mn.exact ? 'exact' : ''}" aria-hidden="true">${MOON_ICON[mn.phase]}</span>` : ''}
           ${rs.length ? `<span class="mark" aria-hidden="true">${rs.map(() => '<i></i>').join('')}</span>` : ''}
           <span class="d">${Number(day.slice(8))}</span>
           ${rs.map(r => `<span class="tl ${r.type ? 't-' + r.type : 't-empty'}">${SHORT[r.type]}</span>`).join('')}
@@ -601,25 +610,30 @@ function viewCalendar(root, id, q) {
       }
       // この週(この月の分)に開催中のイベント名を短くして並べる
       const wfrom = ymOf(ws) === ym ? ws : first, wto = ymOf(addDays(ws, 6)) === ym ? addDays(ws, 6) : addDays(addMonths(ym, 1) + '-01', -1);
-      // イベントの帯は開始日のある週にだけ出す(次の週以降は繰り返さない。開催中の日はマスの下の線で分かる)。
-      // 月の初めより前に始まったイベントは、その月の最初の週に出す
-      const firstWeek = wfrom === first;
+      // イベントの帯は、期間の日がいちばん多く入る週の行にだけ出す(ほかの週では繰り返さない。開催中の日はマスの下の線で分かる)
       const wevs = [];
       for (let i = 0; i < 7; i++) {
         const day = addDays(ws, i);
         if (ymOf(day) !== ym) continue;
-        for (const e of evByDate[day] || []) if (!wevs.includes(e) && ((e.from >= wfrom && e.from <= wto) || (firstWeek && e.from < wfrom))) wevs.push(e);
+        for (const e of evByDate[day] || []) if (!wevs.includes(e) && slotOf[e.id] === ws + '|' + ym) wevs.push(e);
       }
-      // 帯は開始日の列から(終了日の列まで)。段への詰め方と、文字が収まらないときの伸ばし方は layoutBars() が決める
+      // 帯はその週の開始日の列から(終了日の列まで)。段への詰め方と、文字が収まらないときの伸ばし方は layoutBars() が決める
       const col = day => daysBetween(ws, day) + 1;
       const clip = (a, b) => [a < wfrom ? wfrom : a, b > wto ? wto : b];
       const bars = [];
       if (wt) bars.push(`<span class="bar wk-tag t-${wt.target}" data-s="1" data-e="1">${TYPE_LABEL[wt.target]}を狙う週</span>`);
       for (const e of wevs) {
         const [a, b] = clip(e.from, e.to);
-        const name = e.title.replace(/^【[^】]*】\s*/, '').replace(/[「」]/g, '');
-        bars.push(`<button type="button" class="bar ev-bar ${e.typeFree ? 'free' : ''}" data-s="${col(a)}" data-e="${col(b)}"
-          data-full="${esc(e.title)}${e.typeFree ? `(${YAMI}:${YAMI_NOTE}イベント)` : ''}" data-period="${esc(Events.periodLabel(e))}">${e.typeFree ? `<b>${YAMI}</b> ` : ''}${esc(name)}</button>`);
+        const yami = Events.isYami(e);
+        const name = Events.displayTitle(e.title).replace(/^【[^】]*】\s*/, '').replace(/[「」]/g, '');
+        bars.push(`<button type="button" class="bar ev-bar ${yami ? 'free' : ''}" data-s="${col(a)}" data-e="${col(b)}"
+          data-full="${esc(Events.displayTitle(e.title))}${yami ? `(${YAMI}:${YAMI_NOTE}イベント)` : ''}" data-period="${esc(Events.periodLabel(e))}">${yami ? `<b>${YAMI}</b>` : ''}${esc(name)}</button>`);
+      }
+      // GSD/NMD:その日の列の真上だけに短い札(日付の範囲は書かない)。列の位置は動かさない
+      for (const sp of Moon.spansBetween(wfrom, wto)) {
+        const [a, b] = clip(sp.from, sp.to);
+        bars.push(`<button type="button" class="bar moon-bar ${sp.phase}" data-s="${col(a)}" data-e="${col(b)}" data-fixed="1"
+          data-full="${sp.mark}(${MOON_NAME[sp.phase]}の前後)" data-period="${esc(`${Calc.fmtMd(sp.from)}〜${Calc.fmtMd(sp.to)}(${MOON_NAME[sp.phase]} ${fmtDate(sp.center)} ${sp.time})`)}">${MOON_ICON[sp.phase]}${sp.mark}</button>`);
       }
       html += `<div class="cal-week ${wt ? 'aim k-' + wt.target : ''}">
         ${bars.length ? `<div class="wk-bars">${bars.join('')}</div>` : ''}
@@ -657,6 +671,11 @@ function viewCalendar(root, id, q) {
         const need = colsFor(el.scrollWidth + 1); // 文字に必要な列数
         const s = Number(el.dataset.s), e = Number(el.dataset.e);
         let spot = null;
+        if (el.dataset.fixed) {
+          let r = 0; while (!free(r, s, e)) r++;
+          take(r, s, e); el.style.gridRow = String(r + 1); el.style.gridColumn = `${s} / ${e + 1}`;
+          continue;
+        }
         // 上の段から順に、イベントの期間内(開始列〜終了列)の空きを探す
         for (let r = 0; r < rows.length && !spot; r++) {
           for (let c = s; c <= e && !spot; c++) {
@@ -781,9 +800,9 @@ function viewTargets(root) {
       // 狙わない週には、狙う週に向けたおすすめを自動で出す(今週は今夜の時点、ほかの週は月曜の時点で計算)
       // 公式イベント。闇鍋(typeFree)の週は狙い週にするともったいない。タイプが有利になる週は狙い週の候補
       const wevs = Events.forWeek(ws);
-      const free = wevs.some(e => e.typeFree);
+      const free = wevs.some(Events.isYami);
       const boost = [...new Set(wevs.flatMap(e => e.boostTypes))];
-      const evHtml = wevs.length ? `<div class="stack">${wevs.map(e => `<span class="small"><span class="ev-tag ${e.typeFree ? 'free' : ''}">イベント</span> ${esc(e.title)} <span class="muted">${Events.periodLabel(e)}</span></span>`).join('')}
+      const evHtml = wevs.length ? `<div class="stack">${wevs.map(e => `<span class="small"><span class="ev-tag ${Events.isYami(e) ? 'free' : ''}">${Events.isYami(e) ? YAMI : 'イベント'}</span> ${esc(Events.displayTitle(e.title))} <span class="muted">${Events.periodLabel(e)}</span></span>`).join('')}
         ${free ? `<p class="msg warn">${YAMI}の週(${YAMI_NOTE})${aim ? 'です。狙い週にするのはもったいないかもしれません' : ':狙い週にするのはもったいない'}</p>` : ''}
         ${boost.length ? `<p class="msg ok">${boost.map(k => TYPE_LABEL[k]).join('・')}の狙い週の候補(イベントで${boost.map(k => TYPE_LABEL[k]).join('・')}が有利)</p>` : ''}</div>` : '';
       let note;
@@ -984,9 +1003,9 @@ const moonTags = (from, to) => Moon.spansBetween(from, to).map(sp => `<span clas
 function eventListHtml(evs, compact = false) {
   if (!evs.length) return '';
   return `<div class="stack ev-list">${evs.map(e => `<div class="ev-item">
-    <div><b>${esc(e.title)}</b> <span class="small muted">${Events.periodLabel(e)}</span></div>
+    <div><b>${esc(Events.displayTitle(e.title))}</b> <span class="small muted">${Events.periodLabel(e)}</span></div>
     <div class="row small">
-      ${e.typeFree ? `<span class="ev-tag free" title="${YAMI_NOTE}イベント">${YAMI}</span>` : ''}
+      ${Events.isYami(e) ? `<span class="ev-tag free" title="${YAMI_NOTE}イベント">${YAMI}</span>` : ''}
       ${e.boostTypes.map(k => `<span class="tchip t-${k}">${TYPE_LABEL[k]}が有利</span>`).join('')}
       ${e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">公式のお知らせ</a>` : ''}
       ${!compact && e.source !== 'official' ? `<span class="muted">${e.source === 'manual' ? '手入力' : '手で修正'}</span>` : ''}
@@ -1019,10 +1038,10 @@ function viewEvents(root) {
     const cur = editing ? all.find(e => e.id === editing) : null;
     const today = todayYmd();
     const items = all.map(e => `<div class="ev-item ${e.hidden ? 'hidden-ev' : ''}" data-id="${esc(e.id)}">
-      <div><b>${esc(e.title)}</b> <span class="small muted">${Events.periodLabel(e)}${e.to && e.to < today ? '(終了)' : ''}</span></div>
+      <div><b>${esc(Events.displayTitle(e.title))}</b> <span class="small muted">${Events.periodLabel(e)}${e.to && e.to < today ? '(終了)' : ''}</span></div>
       <div class="row small">
         <span class="muted">${{ official: '公式', edited: '公式を手で修正', manual: '手入力' }[e.source]}${e.hidden ? '・非表示' : ''}</span>
-        ${e.typeFree ? `<span class="ev-tag free" title="${YAMI_NOTE}イベント">${YAMI}</span>` : ''}
+        ${Events.isYami(e) ? `<span class="ev-tag free" title="${YAMI_NOTE}イベント">${YAMI}</span>` : ''}
         ${e.boostTypes.map(k => `<span class="tchip t-${k}">${TYPE_LABEL[k]}が有利</span>`).join('')}
         ${e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">公式のお知らせ</a>` : ''}
       </div>
