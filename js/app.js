@@ -566,7 +566,9 @@ function viewCalendar(root, id, q) {
     if (!e.from) continue;
     const cnt = {};
     for (let x = e.from, n = 0; x <= e.to && n < 62; x = addDays(x, 1), n++) { const k = mondayOf(x) + '|' + ymOf(x); cnt[k] = (cnt[k] || 0) + 1; }
-    slotOf[e.id] = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || (a < b ? -1 : 1))[0];
+    // 同じ日数なら、その週の中で早い曜日から始まる(帯を右へ伸ばせる)ほう。日曜1日だけの側は選ばれにくい
+    const startCol = k => { const [ws, ym] = k.split('|'); let x = e.from > ws ? e.from : ws; if (ymOf(x) < ym) x = ym + '-01'; return daysBetween(ws, x); };
+    slotOf[e.id] = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || startCol(a) - startCol(b) || (a < b ? -1 : 1))[0];
   }
   // 表示する範囲:過去は記録のある最初の月まで、未来は狙いの設定とイベントに合わせて(最低3か月先)
   const targetDates = d.weekTargets.filter(t => KINDS.includes(t.target)).map(t => addDays(t.weekStart, 6))
@@ -666,7 +668,7 @@ function viewCalendar(root, id, q) {
       const rows = []; // rows[r][c] = 使用中
       const free = (r, a, b) => { for (let c = a; c <= b; c++) if (rows[r] && rows[r][c]) return false; return true; };
       const take = (r, a, b) => { rows[r] = rows[r] || []; for (let c = a; c <= b; c++) rows[r][c] = true; };
-      for (const el of box.children) {
+      for (const el of [...box.children]) {
         el.style.gridColumn = '1 / 2';
         const need = colsFor(el.scrollWidth + 1); // 文字に必要な列数
         const s = Number(el.dataset.s), e = Number(el.dataset.e);
@@ -684,10 +686,13 @@ function viewCalendar(root, id, q) {
           }
         }
         if (!spot) spot = [rows.length, s, Math.min(7, Math.max(e, s + need - 1))]; // 新しい段
+        // 1列ぶんの幅にしかならないイベントの帯(日曜だけに切れた断片など)は描かない。日の詳細・ホーム・狙い設定には出る
+        if (spot[1] === spot[2] && el.classList.contains('ev-bar')) { el.remove(); continue; }
         take(...spot);
         el.style.gridRow = String(spot[0] + 1);
         el.style.gridColumn = `${spot[1]} / ${spot[2] + 1}`;
       }
+      if (!box.children.length) box.remove(); // 帯が全部なくなった週は、空の段を残さない
     }
   }
   layoutBars(list);
@@ -1112,4 +1117,19 @@ window.addEventListener('storage', e => { if (e.key === STORAGE_KEY) { Store.loa
 route();
 // 公式イベントの最新を読み込む(配信前・読めないときは何もしない)。変わっていたら、イベントを出している画面を描き直す
 // カレンダーはスクロール位置が戻ってしまうので描き直さない(次に開いたときに反映)
+// いま動いている版(index.html の ?v=)と、サーバーの最新の index.html を比べ、違えば再読み込みを案内する
+(async () => {
+  try {
+    const mine = (document.querySelector('script[src*="app.js"]').getAttribute('src').match(/v=([\w-]+)/) || [])[1];
+    const html = await (await fetch('index.html', { cache: 'no-store' })).text();
+    const latest = (html.match(/app\.js\?v=([\w-]+)/) || [])[1];
+    if (mine && latest && mine !== latest) {
+      const bar = document.createElement('div');
+      bar.className = 'update-bar';
+      bar.innerHTML = '新しい版があります。<button type="button" class="btn small">再読み込み</button>';
+      bar.querySelector('button').onclick = () => location.reload();
+      document.body.append(bar);
+    }
+  } catch (e) { /* オフラインなどは何もしない */ }
+})();
 Events.load().then(changed => { if (changed && /^#(home|targets|events)?($|\?)/.test(location.hash || '#home')) route(); });
