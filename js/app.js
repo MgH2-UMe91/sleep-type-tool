@@ -592,7 +592,7 @@ function viewCalendar(root, id, q) {
         const mn = Moon.markOf(day);
         cells += `<button type="button" class="day ${day === today ? 'today' : ''} ${evs.length ? 'ev' : ''}" data-d="${day}"
           aria-label="${fmtDateLong(day)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}${dt ? ' 狙い' + TARGET_LABEL[dt.target] : ''}${evs.length ? ' イベント ' + esc(evs.map(e => e.title).join('、')) : ''}${mn ? ` ${mn.mark}(${MOON_NAME[mn.phase]}${mn.exact ? 'の日' : 'の前後'})` : ''}">
-          ${mn ? `<span class="moon ${mn.phase} ${mn.exact ? 'exact' : ''}" aria-hidden="true">${MOON_ICON[mn.phase]}</span>` : ''}
+          ${mn ? `<span class="moon ${mn.phase} ${mn.exact ? 'exact' : ''}" aria-hidden="true">${MOON_ICON[mn.phase]}${mn.mark}</span>` : ''}
           ${rs.length ? `<span class="mark" aria-hidden="true">${rs.map(() => '<i></i>').join('')}</span>` : ''}
           <span class="d">${Number(day.slice(8))}</span>
           ${rs.map(r => `<span class="tl ${r.type ? 't-' + r.type : 't-empty'}">${SHORT[r.type]}</span>`).join('')}
@@ -600,27 +600,28 @@ function viewCalendar(root, id, q) {
         </button>`;
       }
       // この週(この月の分)に開催中のイベント名を短くして並べる
-      const wevs = [];
-      for (let i = 0; i < 7; i++) { const day = addDays(ws, i); if (ymOf(day) === ym) for (const e of evByDate[day] || []) if (!wevs.includes(e)) wevs.push(e); }
       const wfrom = ymOf(ws) === ym ? ws : first, wto = ymOf(addDays(ws, 6)) === ym ? addDays(ws, 6) : addDays(addMonths(ym, 1) + '-01', -1);
-      // イベントと GSD/NMD を、日の列にそろえた帯で出す(開始日の列〜終了日の列)。
-      // 文字が収まらない帯は、あとで fitBars() が日曜の列まで伸ばす。重なる帯は自動で下の段に積まれる
+      // イベントの帯は開始日のある週にだけ出す(次の週以降は繰り返さない。開催中の日はマスの下の線で分かる)。
+      // 月の初めより前に始まったイベントは、その月の最初の週に出す
+      const firstWeek = wfrom === first;
+      const wevs = [];
+      for (let i = 0; i < 7; i++) {
+        const day = addDays(ws, i);
+        if (ymOf(day) !== ym) continue;
+        for (const e of evByDate[day] || []) if (!wevs.includes(e) && ((e.from >= wfrom && e.from <= wto) || (firstWeek && e.from < wfrom))) wevs.push(e);
+      }
+      // 帯は開始日の列から(終了日の列まで)。段への詰め方と、文字が収まらないときの伸ばし方は layoutBars() が決める
       const col = day => daysBetween(ws, day) + 1;
       const clip = (a, b) => [a < wfrom ? wfrom : a, b > wto ? wto : b];
       const bars = [];
+      if (wt) bars.push(`<span class="bar wk-tag t-${wt.target}" data-s="1" data-e="1">${TYPE_LABEL[wt.target]}を狙う週</span>`);
       for (const e of wevs) {
         const [a, b] = clip(e.from, e.to);
         const name = e.title.replace(/^【[^】]*】\s*/, '').replace(/[「」]/g, '');
-        bars.push(`<button type="button" class="bar ev-bar ${e.typeFree ? 'free' : ''}" style="grid-column:${col(a)} / ${col(b) + 1}"
+        bars.push(`<button type="button" class="bar ev-bar ${e.typeFree ? 'free' : ''}" data-s="${col(a)}" data-e="${col(b)}"
           data-full="${esc(e.title)}${e.typeFree ? `(${YAMI}:${YAMI_NOTE}イベント)` : ''}" data-period="${esc(Events.periodLabel(e))}">${e.typeFree ? `<b>${YAMI}</b> ` : ''}${esc(name)}</button>`);
       }
-      for (const sp of Moon.spansBetween(wfrom, wto)) {
-        const [a, b] = clip(sp.from, sp.to);
-        bars.push(`<button type="button" class="bar moon-bar ${sp.phase}" style="grid-column:${col(a)} / ${col(b) + 1}"
-          data-full="${sp.mark}(${MOON_NAME[sp.phase]}の前後)" data-period="${esc(`${Calc.fmtMd(sp.from)}〜${Calc.fmtMd(sp.to)}(${MOON_NAME[sp.phase]} ${fmtDate(sp.center)} ${sp.time})`)}">${moonSpanLabel(sp)}</button>`);
-      }
       html += `<div class="cal-week ${wt ? 'aim k-' + wt.target : ''}">
-        ${wt ? `<div class="wk-tags"><span class="wk-tag t-${wt.target}">${TYPE_LABEL[wt.target]}を狙う週</span></div>` : ''}
         ${bars.length ? `<div class="wk-bars">${bars.join('')}</div>` : ''}
         <div class="cal-days">${cells}</div></div>`;
     }
@@ -639,21 +640,45 @@ function viewCalendar(root, id, q) {
 
   const list = $('#calList', root), topEl = $('#calTop', root);
   // 古い月を追加する。追加した高さぶんスクロール位置をずらして、見ている場所を動かさない
-  // 文字が帯に収まらなければ、その帯を週の右端(日曜の列)まで伸ばす。それでも収まらない分は「…」で省略
-  function fitBars(scope) {
-    for (const b of $$('.bar:not(.fitted)', scope)) {
-      b.classList.add('fitted');
-      if (b.scrollWidth > b.clientWidth + 1) b.style.gridColumnEnd = '8';
+  // 週の行の帯を上の段から詰めて並べる(狙う週の札も同じ段に入れる)。
+  // 帯は開始日の列から始めるのが基本。上の段に空きがあれば、イベントの期間内で右にずらして入れる。
+  // 文字が収まる幅まで伸ばし(最大で日曜の列まで)、それでも収まらない分は「…」で省略
+  const GAP = 3;
+  function layoutBars(scope) {
+    for (const box of $$('.wk-bars:not(.laid)', scope)) {
+      box.classList.add('laid');
+      const colW = (box.clientWidth - GAP * 6) / 7;
+      const colsFor = px => { let n = 1; while (n < 7 && n * colW + (n - 1) * GAP < px) n++; return n; };
+      const rows = []; // rows[r][c] = 使用中
+      const free = (r, a, b) => { for (let c = a; c <= b; c++) if (rows[r] && rows[r][c]) return false; return true; };
+      const take = (r, a, b) => { rows[r] = rows[r] || []; for (let c = a; c <= b; c++) rows[r][c] = true; };
+      for (const el of box.children) {
+        el.style.gridColumn = '1 / 2';
+        const need = colsFor(el.scrollWidth + 1); // 文字に必要な列数
+        const s = Number(el.dataset.s), e = Number(el.dataset.e);
+        let spot = null;
+        // 上の段から順に、イベントの期間内(開始列〜終了列)の空きを探す
+        for (let r = 0; r < rows.length && !spot; r++) {
+          for (let c = s; c <= e && !spot; c++) {
+            const end = Math.min(7, Math.max(e, c + need - 1));
+            if (c + need - 1 <= 7 && free(r, c, end)) spot = [r, c, end];
+          }
+        }
+        if (!spot) spot = [rows.length, s, Math.min(7, Math.max(e, s + need - 1))]; // 新しい段
+        take(...spot);
+        el.style.gridRow = String(spot[0] + 1);
+        el.style.gridColumn = `${spot[1]} / ${spot[2] + 1}`;
+      }
     }
   }
-  fitBars(list);
+  layoutBars(list);
 
   function prepend(n = 6) {
     if (from <= firstMonth) return false;
     const newFrom = [addMonths(from, -n), firstMonth].sort().pop();
     const h0 = document.documentElement.scrollHeight, y0 = window.scrollY;
     list.insertAdjacentHTML('afterbegin', range(newFrom, addMonths(from, -1)).map(monthHtml).join(''));
-    fitBars(list);
+    layoutBars(list);
     from = newFrom;
     window.scrollTo(0, y0 + document.documentElement.scrollHeight - h0);
     if (from <= firstMonth) topEl.textContent = '';
