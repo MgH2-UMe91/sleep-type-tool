@@ -519,77 +519,155 @@ function viewBulk(root) {
   };
 }
 
-// ================= カレンダー =================
+// ================= カレンダー(縦スクロール) =================
+// 月を縦に並べ、指でスクロールして過去・未来へ移動する。月の見出しはスクロール中も上に固定。
+// 日をタップすると下からシートで詳細を出す(ページは動かないのでスクロール位置はそのまま)。
+// 詳細から入力画面へ行って戻ったときは、離れたときのスクロール位置に戻す。
+const calState = { y: null, from: null }; // 離れたときのスクロール位置と、その時点で一番古く描いていた月
+const ymOf = s => s.slice(0, 7);
+const addMonths = (ym, n) => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; };
+
 function viewCalendar(root, id, q) {
-  let sel = q.d && isYmd(q.d) ? q.d : null;
-  let month = (sel || todayYmd()).slice(0, 7);
+  const today = todayYmd(), thisMonth = ymOf(today);
+  const recs = Store.records(), d = Store.get();
+  const byDate = {};
+  recs.forEach(r => (byDate[r.date] = byDate[r.date] || []).push(r));
+  // 表示する範囲:過去は記録のある最初の月まで、未来は狙いの設定に合わせて(最低3か月先)
+  const targetDates = d.weekTargets.filter(t => KINDS.includes(t.target)).map(t => addDays(t.weekStart, 6))
+    .concat(d.dayTargets.filter(t => KINDS.includes(t.target)).map(t => t.date));
+  const firstMonth = [thisMonth, recs.length ? ymOf(recs[0].date) : thisMonth, ...targetDates.map(ymOf)].sort()[0];
+  const lastMonth = [addMonths(thisMonth, 3), ...targetDates.map(t => addMonths(ymOf(t), 1))].sort().pop();
+  const want = q.d && isYmd(q.d) ? q.d : null;
+  const restoring = want && calState.y !== null;
+  // 最初に描く範囲(古い月はスクロールで近づいたら追加する)
+  // 見たい月の3か月前から。戻ってきたときは、離れたときに描いていた一番古い月から。記録のある最初の月より前には行かない
+  let from = addMonths(ymOf(want || today), -3);
+  if (restoring && calState.from && calState.from < from) from = calState.from;
+  if (from < firstMonth) from = firstMonth;
 
-  function render() {
-    const recs = Store.records();
-    const byDate = {};
-    recs.forEach(r => (byDate[r.date] = byDate[r.date] || []).push(r));
-    const first = month + '-01';
-    const start = mondayOf(first);
-    const [y, m] = month.split('-').map(Number);
-    const today = todayYmd();
-    let cells = '';
-    for (let i = 0; i < 42; i++) {
-      const d = addDays(start, i);
-      if (i >= 35 && d.slice(0, 7) !== month) break;
-      const rs = byDate[d] || [];
-      const tg = Store.targetOf(d);
-      // 分割睡眠で1日に2件以上あれば、件数分の印とタイプを就寝時刻順に並べる
-      cells += `<button type="button" class="day ${d === today ? 'today' : ''} ${d === sel ? 'sel' : ''} ${d.slice(0, 7) !== month ? 'out' : ''}" data-d="${d}"
-        aria-label="${fmtDateLong(d)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}">
-        ${rs.length ? `<span class="mark" aria-hidden="true">${rs.map(() => '<i></i>').join('')}</span>` : ''}
-        <span class="d">${parseYmd(d).getDate()}</span>
-        ${rs.map(r => `<span class="tl ${r.type ? 't-' + r.type : 't-empty'}">${SHORT[r.type]}</span>`).join('')}
-        ${tg && tg.target !== 'none' ? `<span class="tg">狙${SHORT[tg.target]}</span>` : ''}
-      </button>`;
+  function monthHtml(ym) {
+    const [y, m] = ym.split('-').map(Number);
+    const first = ym + '-01';
+    let html = `<section class="cal-month" data-ym="${ym}">
+      <div class="cal-head"><h2>${y}年${m}月</h2>
+        <div class="cal-wd">${['月', '火', '水', '木', '金', '土', '日'].map((w, i) => `<span class="${i === 5 ? 'sat' : i === 6 ? 'sun' : ''}">${w}</span>`).join('')}</div></div>`;
+    for (let ws = mondayOf(first); ymOf(ws) <= ym; ws = addDays(ws, 7)) {
+      // 週の行。狙う週なら色と文字の印を付ける
+      const wt = d.weekTargets.find(t => t.weekStart === ws && KINDS.includes(t.target));
+      let cells = '';
+      for (let i = 0; i < 7; i++) {
+        const day = addDays(ws, i);
+        if (ymOf(day) !== ym) { cells += '<span class="day blank"></span>'; continue; }
+        const rs = byDate[day] || [];
+        const dt = d.dayTargets.find(t => t.date === day);
+        cells += `<button type="button" class="day ${day === today ? 'today' : ''}" data-d="${day}"
+          aria-label="${fmtDateLong(day)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}${dt ? ' 狙い' + TARGET_LABEL[dt.target] : ''}">
+          ${rs.length ? `<span class="mark" aria-hidden="true">${rs.map(() => '<i></i>').join('')}</span>` : ''}
+          <span class="d">${Number(day.slice(8))}</span>
+          ${rs.map(r => `<span class="tl ${r.type ? 't-' + r.type : 't-empty'}">${SHORT[r.type]}</span>`).join('')}
+          ${dt ? `<span class="tg">狙${dt.target === 'none' ? 'なし' : SHORT[dt.target]}</span>` : ''}
+        </button>`;
+      }
+      html += `<div class="cal-week ${wt ? 'aim k-' + wt.target : ''}">
+        ${wt ? `<span class="wk-tag t-${wt.target}">${TYPE_LABEL[wt.target]}を狙う週</span>` : ''}
+        <div class="cal-days">${cells}</div></div>`;
     }
-    root.innerHTML = `
-    <section class="card">
-      <div class="row"><button class="btn ghost small" id="prev" aria-label="前の月">◀</button>
-        <h2 class="grow" style="text-align:center">${y}年${m}月</h2>
-        <button class="btn ghost small" id="next" aria-label="次の月">▶</button></div>
-      <div class="cal">${['月', '火', '水', '木', '金', '土', '日'].map((w, i) => `<span class="wd ${i === 5 ? 'sat' : i === 6 ? 'sun' : ''}">${w}</span>`).join('')}${cells}</div>
-      <p class="small muted">●=入力済み(分割睡眠は件数分) · 色と文字=表示タイプ(なし/うと/すや/ぐっ) · 狙○=その日の狙い</p>
-    </section>
-    <section id="detail">${sel ? detailHtml(sel, byDate[sel] || []) : '<p class="small muted">日をタップすると詳細が出ます。</p>'}</section>`;
-    $('#prev', root).onclick = () => { month = addDays(first, -1).slice(0, 7); render(); };
-    $('#next', root).onclick = () => { month = addDays(first, 32).slice(0, 7); render(); };
-    $$('.day', root).forEach(b => b.onclick = () => { sel = b.dataset.d; if (sel.slice(0, 7) !== month) month = sel.slice(0, 7); history.replaceState(null, '', `#calendar?d=${sel}`); render(); $('#detail', root).scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    return html + '</section>';
   }
+  const range = (a, b) => { const out = []; for (let ym = a; ym <= b; ym = addMonths(ym, 1)) out.push(ym); return out; };
 
-  function detailHtml(d, rs) {
-    const tg = Store.targetOf(d);
-    const a30n = Calc.averageAt(d, 'count');
-    const items = rs.map(r => {
-      const est = Calc.estimateType(r, 'count');
-      return `<div class="stack">
-        <div class="row">${rs.length > 1 ? `<span class="ref">${rs.indexOf(r) + 1}件目</span>` : ''}${tchip(r.type)}<span class="small muted">${r.bedTime || '--:--'}〜${r.wakeTime || '--:--'}</span>
-          <span class="small">${r.sleepMin != null ? minToHm(r.sleepMin) : ''}</span><a class="btn ghost small" href="#input/${r.id}" style="margin-left:auto">直す</a></div>
-        <div class="avgtbl">
-          <span></span>${KINDS.map(k => `<span class="h pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span>`).join('')}
-          <span class="h">この夜</span>${KINDS.map(k => `<span class="num">${r[PCT_KEY[k]]}%</span>`).join('')}
-          ${est ? `<span class="h">それまでの平均</span>${KINDS.map(k => `<span class="num">${fmtPct(est.prior[k].mean)}%</span>`).join('')}
-          <span class="h">平均との差</span>${KINDS.map(k => `<span class="num">${est.diffs[k] >= 0 ? '+' : ''}${est.diffs[k].toFixed(1)}</span>`).join('')}` : ''}
-        </div>
-        ${est ? `<p class="small">推定タイプ:${tchip(est.type)} <span class="guess">推定</span> <span class="muted">平均より一番多く出たもの。差が${NEAR_AVG_PT}ポイント未満なら「とくちょうなし」(しきい値は仮)</span></p>` : '<p class="small muted">これより前の記録がないため、推定タイプは出せません。</p>'}
-        ${r.memo ? `<p class="small">メモ:${esc(r.memo)}</p>` : ''}
-        <p class="small muted">入力元:${{ manual: '手入力', ocr: 'スクショ', ocr_edited: 'スクショ(修正あり)' }[r.source]}</p>
-      </div>`;
-    }).join('');
-    return `<div class="card">
-      <h2>${fmtDateLong(d)}</h2>
-      <p class="small">狙い:${tg ? `${TARGET_LABEL[tg.target]}(${tg.from === 'day' ? '日の設定' : '週の設定'})` : '未設定'}</p>
-      <div class="list">${items || '<p class="small muted">記録はありません。</p>'}</div>
-      <a class="btn ghost" href="#input?date=${d}">この日の記録を追加</a>
-      <h3>この日時点の平均</h3>
-      ${avgBlock(a30n, '直近30回')}
-    </div>`;
+  root.innerHTML = `
+    <p class="small muted">●=入力済み(分割睡眠は件数分) · 色と文字=表示タイプ(なし/うと/すや/ぐっ) · 色の帯=狙う週 · 狙○=日ごとの狙い</p>
+    <div id="calTop" class="small muted cal-more">${from > firstMonth ? '前の月を読み込み中…' : ''}</div>
+    <div id="calList">${range(from, lastMonth).map(monthHtml).join('')}</div>
+    <p class="small muted" style="text-align:center">${Number(lastMonth.slice(0, 4))}年${Number(lastMonth.slice(5))}月まで表示しています</p>
+    <button type="button" class="btn today-btn" id="toToday">今日</button>
+    <dialog id="daySheet" class="sheet"><div id="daySheetBody"></div><button type="button" class="btn ghost block" id="sheetClose">閉じる</button></dialog>`;
+
+  const list = $('#calList', root), topEl = $('#calTop', root);
+  // 古い月を追加する。追加した高さぶんスクロール位置をずらして、見ている場所を動かさない
+  function prepend(n = 6) {
+    if (from <= firstMonth) return false;
+    const newFrom = [addMonths(from, -n), firstMonth].sort().pop();
+    const h0 = document.documentElement.scrollHeight, y0 = window.scrollY;
+    list.insertAdjacentHTML('afterbegin', range(newFrom, addMonths(from, -1)).map(monthHtml).join(''));
+    from = newFrom;
+    window.scrollTo(0, y0 + document.documentElement.scrollHeight - h0);
+    if (from <= firstMonth) topEl.textContent = '';
+    return true;
   }
-  render();
+  // 上端から600px以内に来たら古い月を追加(スクロールのたびに軽く確認するだけ。passive なのでスクロールを止めない)
+  let watching = false;
+  const onScroll = () => { if (watching && window.scrollY < 600) prepend(); };
+  window.addEventListener('scroll', onScroll, { passive: true });
+
+  const scrollToDay = (day, behavior = 'auto') => {
+    const el = $(`.day[data-d="${day}"]`, root) || $(`.cal-month[data-ym="${ymOf(day)}"]`, root);
+    if (!el) return;
+    const head = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h')) || 50;
+    const y = el.getBoundingClientRect().top + window.scrollY - head - 120; // 月の見出しの下に見えるよう少し上に余白
+    window.scrollTo({ top: Math.max(0, y), behavior });
+  };
+
+  // 日の詳細(シート)
+  const sheet = $('#daySheet', root);
+  function openDay(day) {
+    $('#daySheetBody', root).innerHTML = calDetailHtml(day, byDate[day] || []);
+    history.replaceState(null, '', `#calendar?d=${day}`); // 入力画面から戻ったとき、この日とスクロール位置に戻れるように
+    if (!sheet.open) sheet.showModal();
+    sheet.scrollTop = 0;
+  }
+  // 閉じたら URL から日付を外す(ほかの画面へ移るときに閉じた場合は、移った先の URL を変えない)
+  const clearDay = () => { if (location.hash.startsWith('#calendar')) history.replaceState(null, '', '#calendar'); };
+  const closeSheet = () => { sheet.close(); clearDay(); };
+  sheet.addEventListener('close', clearDay); // Esc キーで閉じたとき
+  sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); }); // 外側(背景)をタップで閉じる
+  $('#sheetClose', root).onclick = closeSheet;
+  list.addEventListener('click', e => { const b = e.target.closest('button.day'); if (b) openDay(b.dataset.d); });
+  $('#toToday', root).onclick = () => scrollToDay(today, 'smooth');
+
+  // 位置合わせは route() のスクロールリセットの後に行う
+  setTimeout(() => {
+    if (restoring) window.scrollTo(0, calState.y);
+    else scrollToDay(want || today);
+    if (want) openDay(want);
+    watching = true; onScroll(); // 位置を合わせてから、上端に近づいたら古い月を追加する監視を始める
+  }, 0);
+
+  return () => {
+    calState.y = window.scrollY; calState.from = from;
+    window.removeEventListener('scroll', onScroll);
+    if (sheet.open) sheet.close();
+  };
+}
+
+function calDetailHtml(d, rs) {
+  const tg = Store.targetOf(d);
+  const a30n = Calc.averageAt(d, 'count');
+  const items = rs.map(r => {
+    const est = Calc.estimateType(r, 'count');
+    return `<div class="stack">
+      <div class="row">${rs.length > 1 ? `<span class="ref">${rs.indexOf(r) + 1}件目</span>` : ''}${tchip(r.type)}<span class="small muted">${r.bedTime || '--:--'}〜${r.wakeTime || '--:--'}</span>
+        <span class="small">${r.sleepMin != null ? minToHm(r.sleepMin) : ''}</span><a class="btn ghost small" href="#input/${r.id}" style="margin-left:auto">直す</a></div>
+      <div class="avgtbl">
+        <span></span>${KINDS.map(k => `<span class="h pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span>`).join('')}
+        <span class="h">この夜</span>${KINDS.map(k => `<span class="num">${r[PCT_KEY[k]]}%</span>`).join('')}
+        ${est ? `<span class="h">それまでの平均</span>${KINDS.map(k => `<span class="num">${fmtPct(est.prior[k].mean)}%</span>`).join('')}
+        <span class="h">平均との差</span>${KINDS.map(k => `<span class="num">${est.diffs[k] >= 0 ? '+' : ''}${est.diffs[k].toFixed(1)}</span>`).join('')}` : ''}
+      </div>
+      ${est ? `<p class="small">推定タイプ:${tchip(est.type)} <span class="guess">推定</span> <span class="muted">平均より一番多く出たもの。差が${NEAR_AVG_PT}ポイント未満なら「とくちょうなし」(しきい値は仮)</span></p>` : '<p class="small muted">これより前の記録がないため、推定タイプは出せません。</p>'}
+      ${r.memo ? `<p class="small">メモ:${esc(r.memo)}</p>` : ''}
+      <p class="small muted">入力元:${{ manual: '手入力', ocr: 'スクショ', ocr_edited: 'スクショ(修正あり)' }[r.source]}</p>
+    </div>`;
+  }).join('');
+  return `<div class="stack">
+    <h2>${fmtDateLong(d)}</h2>
+    <p class="small">狙い:${tg ? `${TARGET_LABEL[tg.target]}(${tg.from === 'day' ? '日の設定' : '週の設定'})` : '未設定'}</p>
+    <div class="list">${items || '<p class="small muted">記録はありません。</p>'}</div>
+    <a class="btn ghost" href="#input?date=${d}">この日の記録を追加</a>
+    <h3>この日時点の平均</h3>
+    ${avgBlock(a30n, '直近30回')}
+  </div>`;
 }
 
 // ================= 狙い設定 =================
@@ -794,6 +872,9 @@ const VIEWS = { home: viewHome, input: viewInput, bulk: viewBulk, calendar: view
 
 Store.load();
 applyTheme();
+const setTopbarH = () => document.documentElement.style.setProperty('--topbar-h', $('.topbar').offsetHeight + 'px');
+setTopbarH();
+window.addEventListener('resize', setTopbarH);
 window.addEventListener('hashchange', route);
 window.addEventListener('storage', e => { if (e.key === STORAGE_KEY) { Store.load(); route(); } });
 route();
