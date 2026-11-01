@@ -78,11 +78,11 @@ const Events = (() => {
   const forWeek = ws => list().filter(e => e.from && e.from <= addDays(ws, 6) && e.to >= ws);
 
   const periodLabel = e => !e.from ? '期間未定' : e.from === e.to ? `${Calc.fmtMd(e.from)}` : `${Calc.fmtMd(e.from)}〜${Calc.fmtMd(e.to)}`;
-  // 長いタイトルを短くする。「タイプ不問」などの大事な語が後ろにあるときは、それを残す
+  // 長いタイトルを短くする。「闇鍋」「タイプ不問」などの大事な語が後ろにあるときは、それを残す
   const shortTitle = (t, n = 12) => {
     t = t.replace(/^【[^】]*】\s*/, '').replace(/[「」]/g, ''); // 先頭の【イベント】などとかぎかっこは短い表示では省く
     if (t.length <= n) return t;
-    const m = t.match(/[((][^()()]*不問[^()()]*[))]$/);
+    const m = t.match(/[((][^()()]*(?:不問|闇鍋)[^()()]*[))]$/);
     return m && m[0].length < n - 2 ? t.slice(0, n - m[0].length - 1) + '…' + m[0] : t.slice(0, n - 1) + '…';
   };
 

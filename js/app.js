@@ -68,8 +68,11 @@ function applyTheme() {
 
 // ---------- ルーティング(#画面名/ID?キー=値) ----------
 const APP_NAME = '睡眠タイプ管理ツール';
-const AUTHOR = 'ゆめくい';
-const FULL_NAME = `${APP_NAME} by ${AUTHOR}`;
+const FOR_GAME = 'ポケモンスリープ';
+const FULL_NAME = `${APP_NAME} for ${FOR_GAME}`;
+// 公式イベントの typeFree(どのタイプのポケモンも出る)の呼び名。内部のデータ名は typeFree のまま
+const YAMI = '闇鍋';
+const YAMI_NOTE = 'どのタイプのポケモンも出る';
 const TITLES = { home: APP_NAME, input: '入力', bulk: '一括取り込み', calendar: 'カレンダー', targets: '狙い設定', stats: '統計', data: 'データ管理', about: 'このアプリについて', menu: 'メニュー', events: 'イベント' };
 const TAB_OF = { bulk: 'menu', targets: 'menu', data: 'menu', about: 'menu', events: 'menu' };
 let cleanup = null;
@@ -111,7 +114,7 @@ function viewHome(root) {
   const s = Store.get().settings;
   const plan = Calc.planFor(today);
   const weekEvents = Events.forWeek(mondayOf(today));
-  // 次の(または今の)狙い週がタイプ不問のイベントと重なっていたら注意
+  // 次の(または今の)狙い週が闇鍋(typeFree)のイベントと重なっていたら注意
   const aimWeek = Store.get().weekTargets.filter(t => KINDS.includes(t.target) && addDays(t.weekStart, 6) >= today).sort((a, b) => a.weekStart < b.weekStart ? -1 : 1)[0];
   const aimFree = aimWeek ? Events.forWeek(aimWeek.weekStart).filter(e => e.typeFree) : [];
   const a30n = Calc.averageAt(today, 'count');
@@ -132,7 +135,7 @@ function viewHome(root) {
     </div>
     <p class="small">${esc(plan.reason)}</p>
     ${plan.more ? `<p class="small muted">${esc(plan.more)}</p>` : ''}
-    ${aimFree.length ? `<p class="msg warn">${fmtDate(aimWeek.weekStart)}の狙い週は「${esc(aimFree[0].title)}」(タイプ不問)と重なっています。狙い週をずらすことも考えてみてください。</p>` : ''}
+    ${aimFree.length ? `<p class="msg warn">${fmtDate(aimWeek.weekStart)}の狙い週は「${esc(aimFree[0].title)}」(闇鍋:${YAMI_NOTE}イベント)と重なっています。狙い週をずらすことも考えてみてください。</p>` : ''}
     ${plan.kind === 'unset' ? '<a class="btn" href="#targets">狙う週を決める</a>' : '<p class="small"><a href="#targets">狙う週を決める・変える</a></p>'}
   </section>
   ${(() => {
@@ -589,7 +592,7 @@ function viewCalendar(root, id, q) {
         const mn = Moon.markOf(day);
         cells += `<button type="button" class="day ${day === today ? 'today' : ''} ${evs.length ? 'ev' : ''}" data-d="${day}"
           aria-label="${fmtDateLong(day)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}${dt ? ' 狙い' + TARGET_LABEL[dt.target] : ''}${evs.length ? ' イベント ' + esc(evs.map(e => e.title).join('、')) : ''}${mn ? ` ${mn.mark}(${MOON_NAME[mn.phase]}${mn.exact ? 'の日' : 'の前後'})` : ''}">
-          ${mn ? `<span class="moon ${mn.phase} ${mn.exact ? 'exact' : ''}" aria-hidden="true">${MOON_ICON[mn.phase]}${mn.mark}</span>` : ''}
+          ${mn ? `<span class="moon ${mn.phase} ${mn.exact ? 'exact' : ''}" aria-hidden="true">${MOON_ICON[mn.phase]}</span>` : ''}
           ${rs.length ? `<span class="mark" aria-hidden="true">${rs.map(() => '<i></i>').join('')}</span>` : ''}
           <span class="d">${Number(day.slice(8))}</span>
           ${rs.map(r => `<span class="tl ${r.type ? 't-' + r.type : 't-empty'}">${SHORT[r.type]}</span>`).join('')}
@@ -602,7 +605,8 @@ function viewCalendar(root, id, q) {
       const wfrom = ymOf(ws) === ym ? ws : first, wto = ymOf(addDays(ws, 6)) === ym ? addDays(ws, 6) : addDays(addMonths(ym, 1) + '-01', -1);
       const wmoon = moonTags(wfrom, wto);
       html += `<div class="cal-week ${wt ? 'aim k-' + wt.target : ''}">
-        ${wt || wevs.length || wmoon ? `<div class="wk-tags">${wmoon}${wt ? `<span class="wk-tag t-${wt.target}">${TYPE_LABEL[wt.target]}を狙う週</span>` : ''}${wevs.map(e => `<span class="ev-tag ${e.typeFree ? 'free' : ''}">${esc(Events.shortTitle(e.title, 11))}${e.typeFree && !/不問/.test(e.title) ? '(不問)' : ''}</span>`).join('')}</div>` : ''}
+        ${wt || wevs.length ? `<div class="wk-tags">${wt ? `<span class="wk-tag t-${wt.target}">${TYPE_LABEL[wt.target]}を狙う週</span>` : ''}${wevs.map(e => `<span class="ev-tag ${e.typeFree ? 'free' : ''}">${esc(Events.shortTitle(e.title, 11))}${e.typeFree && !/不問|闇鍋/.test(e.title) ? '(闇鍋)' : ''}</span>`).join('')}</div>` : ''}
+        ${wmoon ? `<div class="wk-tags">${wmoon}</div>` : ''}
         <div class="cal-days">${cells}</div></div>`;
     }
     return html + '</section>';
@@ -610,7 +614,8 @@ function viewCalendar(root, id, q) {
   const range = (a, b) => { const out = []; for (let ym = a; ym <= b; ym = addMonths(ym, 1)) out.push(ym); return out; };
 
   root.innerHTML = `
-    <p class="small muted">●=入力済み(分割睡眠は件数分) · 色と文字=表示タイプ(なし/うと/すや/ぐっ) · 色の帯=狙う週 · 狙○=日ごとの狙い</p>
+    <p class="small muted">緑の点=入力済み(分割睡眠は件数分) · 色と文字=表示タイプ(なし/うと/すや/ぐっ) · 色の帯=狙う週 · 狙○=日ごとの狙い · 紫の線=イベント · ○/●=満月・新月の前後</p>
+    <p class="small muted">GSD=満月の前後(満月の日と前後1日の計3日)、NMD=新月の前後(新月の日と前後1日の計3日)。${YAMI}=${YAMI_NOTE}イベント</p>
     <div id="calTop" class="small muted cal-more">${from > firstMonth ? '前の月を読み込み中…' : ''}</div>
     <div id="calList">${range(from, lastMonth).map(monthHtml).join('')}</div>
     <p class="small muted" style="text-align:center">${Number(lastMonth.slice(0, 4))}年${Number(lastMonth.slice(5))}月まで表示しています</p>
@@ -720,12 +725,12 @@ function viewTargets(root) {
       const aim = wt && KINDS.includes(wt.target) ? wt.target : '';
       const overrides = d.dayTargets.filter(t => t.date >= ws && t.date <= addDays(ws, 6));
       // 狙わない週には、狙う週に向けたおすすめを自動で出す(今週は今夜の時点、ほかの週は月曜の時点で計算)
-      // 公式イベント。タイプ不問の週は狙い週にするともったいない。タイプが有利になる週は狙い週の候補
+      // 公式イベント。闇鍋(typeFree)の週は狙い週にするともったいない。タイプが有利になる週は狙い週の候補
       const wevs = Events.forWeek(ws);
       const free = wevs.some(e => e.typeFree);
       const boost = [...new Set(wevs.flatMap(e => e.boostTypes))];
       const evHtml = wevs.length ? `<div class="stack">${wevs.map(e => `<span class="small"><span class="ev-tag ${e.typeFree ? 'free' : ''}">イベント</span> ${esc(e.title)} <span class="muted">${Events.periodLabel(e)}</span></span>`).join('')}
-        ${free ? `<p class="msg warn">タイプ不問の週${aim ? 'です。狙い週にするのはもったいないかもしれません' : ':狙い週にするのはもったいない'}</p>` : ''}
+        ${free ? `<p class="msg warn">${YAMI}の週(${YAMI_NOTE})${aim ? 'です。狙い週にするのはもったいないかもしれません' : ':狙い週にするのはもったいない'}</p>` : ''}
         ${boost.length ? `<p class="msg ok">${boost.map(k => TYPE_LABEL[k]).join('・')}の狙い週の候補(イベントで${boost.map(k => TYPE_LABEL[k]).join('・')}が有利)</p>` : ''}</div>` : '';
       let note;
       if (aim) note = `<span class="tchip t-${aim}">${TYPE_LABEL[aim]}を狙う週</span>`;
@@ -746,8 +751,8 @@ function viewTargets(root) {
           <select data-week="${ws}" aria-label="${fmtDate(ws)}の週の狙い">${opt(KINDS, aim, '狙わない')}</select>
         </div>
         <div>${note}</div>
-        ${(() => { const t = moonTags(ws, addDays(ws, 6)); return t ? `<div class="wk-tags">${t}</div>` : ''; })()}
         ${evHtml}
+        ${(() => { const t = moonTags(ws, addDays(ws, 6)); return t ? `<div class="wk-tags">${t}</div>` : ''; })()}
         <details class="dayover" data-ws="${ws}" ${openDays.has(ws) || overrides.length ? 'open' : ''}><summary>日ごとに変える${overrides.length ? `(${overrides.length}日)` : ''}</summary><div class="stack">${days}</div></details>
       </section>`;
     }
@@ -875,7 +880,7 @@ function viewAbout(root) {
   root.innerHTML = `
   <section class="card">
     <h2>${APP_NAME}</h2>
-    <p class="small muted">作者:${AUTHOR}</p>
+    <p class="small muted">対象:${FOR_GAME}(非公式ファンツール)</p>
     <p>睡眠計測ゲームの睡眠結果(うとうと・すやすや・ぐっすりの割合)を自分で記録し、平均を見ながら今夜狙うタイプを決めるための<b>非公式ファンツール</b>です。ゲームの開発・運営会社とは関係ありません。ゲームの画像・ロゴは使っていません。</p>
   </section>
   <section class="card">
@@ -927,7 +932,7 @@ function eventListHtml(evs, compact = false) {
   return `<div class="stack ev-list">${evs.map(e => `<div class="ev-item">
     <div><b>${esc(e.title)}</b> <span class="small muted">${Events.periodLabel(e)}</span></div>
     <div class="row small">
-      ${e.typeFree ? '<span class="ev-tag free">タイプ不問</span>' : ''}
+      ${e.typeFree ? `<span class="ev-tag free" title="${YAMI_NOTE}イベント">${YAMI}</span>` : ''}
       ${e.boostTypes.map(k => `<span class="tchip t-${k}">${TYPE_LABEL[k]}が有利</span>`).join('')}
       ${e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">公式のお知らせ</a>` : ''}
       ${!compact && e.source !== 'official' ? `<span class="muted">${e.source === 'manual' ? '手入力' : '手で修正'}</span>` : ''}
@@ -948,7 +953,7 @@ function viewEvents(root) {
       </div>
       <p class="small muted">日付はゲームの日付(午前4時に切り替わる)で入れてください。</p>
       <label class="f">公式のお知らせのURL(任意)<input type="url" name="url" value="${esc(v.url || '')}" placeholder="https://"></label>
-      <label class="check"><input type="checkbox" name="typeFree" ${v.typeFree ? 'checked' : ''}>タイプ不問(どの睡眠タイプでもよい週)</label>
+      <label class="check"><input type="checkbox" name="typeFree" ${v.typeFree ? 'checked' : ''}>${YAMI}(${YAMI_NOTE}イベント)</label>
       <div class="row small"><span class="muted">有利なタイプ:</span>${KINDS.map(k => `<label class="check"><input type="checkbox" name="boost" value="${k}" ${v.boostTypes.includes(k) ? 'checked' : ''}>${TYPE_LABEL[k]}</label>`).join('')}</div>
       <p id="evMsg" class="msg"></p>
       <div class="grid2"><button class="btn" type="submit">${e ? '修正を保存' : '追加する'}</button>${e ? '<button class="btn ghost" type="button" id="evCancel">やめる</button>' : ''}</div>
@@ -963,7 +968,7 @@ function viewEvents(root) {
       <div><b>${esc(e.title)}</b> <span class="small muted">${Events.periodLabel(e)}${e.to && e.to < today ? '(終了)' : ''}</span></div>
       <div class="row small">
         <span class="muted">${{ official: '公式', edited: '公式を手で修正', manual: '手入力' }[e.source]}${e.hidden ? '・非表示' : ''}</span>
-        ${e.typeFree ? '<span class="ev-tag free">タイプ不問</span>' : ''}
+        ${e.typeFree ? `<span class="ev-tag free" title="${YAMI_NOTE}イベント">${YAMI}</span>` : ''}
         ${e.boostTypes.map(k => `<span class="tchip t-${k}">${TYPE_LABEL[k]}が有利</span>`).join('')}
         ${e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">公式のお知らせ</a>` : ''}
       </div>
