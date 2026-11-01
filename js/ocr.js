@@ -321,7 +321,8 @@ const Ocr = (() => {
         // 分割に失敗したときは日本語でそのまま読む
         const t = (await ocr(jpn, cv)).replace(/\s/g, '');
         keep('日付(日本語で読み直し)', cv, t);
-        const mm = t.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+        // 「年」「月」が別の文字に誤認識されても拾えるよう、年(20xx)のあとの数字2つを月・日とみなす
+        const mm = t.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/) || t.match(/(20\d{2})\D{1,3}(\d{1,2})\D{1,3}(\d{1,2})/);
         m = mm ? mm.slice(1) : null;
       }
       if (m && Number(m[1]) >= 1 && Number(m[1]) <= 12 && Number(m[2]) >= 1 && Number(m[2]) <= 31) res.date = `${m[0]}-${pad2(m[1])}-${pad2(m[2])}`;
