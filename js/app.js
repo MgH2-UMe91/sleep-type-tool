@@ -135,6 +135,11 @@ function viewHome(root) {
     ${aimFree.length ? `<p class="msg warn">${fmtDate(aimWeek.weekStart)}の狙い週は「${esc(aimFree[0].title)}」(タイプ不問)と重なっています。狙い週をずらすことも考えてみてください。</p>` : ''}
     ${plan.kind === 'unset' ? '<a class="btn" href="#targets">狙う週を決める</a>' : '<p class="small"><a href="#targets">狙う週を決める・変える</a></p>'}
   </section>
+  ${(() => {
+    const ws = mondayOf(today), sp = Moon.spansBetween(ws, addDays(ws, 13));
+    return sp.length ? `<section class="card"><h2 class="small-h">今週・来週の GSD / NMD</h2>
+      <div class="stack">${sp.map(x => `<p class="small"><span class="moon-tag ${x.phase}">${moonSpanLabel(x)}</span> ${MOON_NAME[x.phase]} ${fmtDate(x.center)} ${x.time}</p>`).join('')}</div></section>` : '';
+  })()}
   ${weekEvents.length ? `<section class="card"><h2 class="small-h">今週のイベント</h2>${eventListHtml(weekEvents, true)}</section>` : ''}
   ${needBackup ? `<section class="msg warn">${lastExp ? `最後のバックアップから${expDays}日たちました。` : 'まだバックアップを書き出していません。'}ブラウザのデータを消すと記録も消えます。<a href="#data">データ管理で書き出す</a></section>` : ''}
   ${missing.length ? `<section class="card"><h2>未入力の日</h2><p class="small muted">直近14日で記録がない日</p>
@@ -581,8 +586,10 @@ function viewCalendar(root, id, q) {
         const rs = byDate[day] || [];
         const dt = d.dayTargets.find(t => t.date === day);
         const evs = evByDate[day] || [];
+        const mn = Moon.markOf(day);
         cells += `<button type="button" class="day ${day === today ? 'today' : ''} ${evs.length ? 'ev' : ''}" data-d="${day}"
-          aria-label="${fmtDateLong(day)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}${dt ? ' 狙い' + TARGET_LABEL[dt.target] : ''}${evs.length ? ' イベント ' + esc(evs.map(e => e.title).join('、')) : ''}">
+          aria-label="${fmtDateLong(day)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}${dt ? ' 狙い' + TARGET_LABEL[dt.target] : ''}${evs.length ? ' イベント ' + esc(evs.map(e => e.title).join('、')) : ''}${mn ? ` ${mn.mark}(${MOON_NAME[mn.phase]}${mn.exact ? 'の日' : 'の前後'})` : ''}">
+          ${mn ? `<span class="moon ${mn.phase} ${mn.exact ? 'exact' : ''}" aria-hidden="true">${MOON_ICON[mn.phase]}${mn.mark}</span>` : ''}
           ${rs.length ? `<span class="mark" aria-hidden="true">${rs.map(() => '<i></i>').join('')}</span>` : ''}
           <span class="d">${Number(day.slice(8))}</span>
           ${rs.map(r => `<span class="tl ${r.type ? 't-' + r.type : 't-empty'}">${SHORT[r.type]}</span>`).join('')}
@@ -592,8 +599,10 @@ function viewCalendar(root, id, q) {
       // この週(この月の分)に開催中のイベント名を短くして並べる
       const wevs = [];
       for (let i = 0; i < 7; i++) { const day = addDays(ws, i); if (ymOf(day) === ym) for (const e of evByDate[day] || []) if (!wevs.includes(e)) wevs.push(e); }
+      const wfrom = ymOf(ws) === ym ? ws : first, wto = ymOf(addDays(ws, 6)) === ym ? addDays(ws, 6) : addDays(addMonths(ym, 1) + '-01', -1);
+      const wmoon = moonTags(wfrom, wto);
       html += `<div class="cal-week ${wt ? 'aim k-' + wt.target : ''}">
-        ${wt || wevs.length ? `<div class="wk-tags">${wt ? `<span class="wk-tag t-${wt.target}">${TYPE_LABEL[wt.target]}を狙う週</span>` : ''}${wevs.map(e => `<span class="ev-tag ${e.typeFree ? 'free' : ''}">${esc(Events.shortTitle(e.title, 11))}${e.typeFree && !/不問/.test(e.title) ? '(不問)' : ''}</span>`).join('')}</div>` : ''}
+        ${wt || wevs.length || wmoon ? `<div class="wk-tags">${wmoon}${wt ? `<span class="wk-tag t-${wt.target}">${TYPE_LABEL[wt.target]}を狙う週</span>` : ''}${wevs.map(e => `<span class="ev-tag ${e.typeFree ? 'free' : ''}">${esc(Events.shortTitle(e.title, 11))}${e.typeFree && !/不問/.test(e.title) ? '(不問)' : ''}</span>`).join('')}</div>` : ''}
         <div class="cal-days">${cells}</div></div>`;
     }
     return html + '</section>';
@@ -687,6 +696,7 @@ function calDetailHtml(d, rs) {
   return `<div class="stack">
     <h2>${fmtDateLong(d)}</h2>
     <p class="small">狙い:${tg ? `${TARGET_LABEL[tg.target]}(${tg.from === 'day' ? '日の設定' : '週の設定'})` : '未設定'}</p>
+    ${(() => { const mn = Moon.markOf(d); return mn ? `<p class="small"><span class="moon-tag ${mn.phase}">${MOON_ICON[mn.phase]}${mn.mark}</span> ${MOON_NAME[mn.phase]}:${fmtDate(mn.center)} ${mn.time}(日本時間)${mn.exact ? '' : `。この日は${MOON_NAME[mn.phase]}の${d < mn.center ? '前日' : '翌日'}`}</p>` : ''; })()}
     ${eventListHtml(Events.byDate()[d] || [])}
     <div class="list">${items || '<p class="small muted">記録はありません。</p>'}</div>
     <a class="btn ghost" href="#input?date=${d}">この日の記録を追加</a>
@@ -736,6 +746,7 @@ function viewTargets(root) {
           <select data-week="${ws}" aria-label="${fmtDate(ws)}の週の狙い">${opt(KINDS, aim, '狙わない')}</select>
         </div>
         <div>${note}</div>
+        ${(() => { const t = moonTags(ws, addDays(ws, 6)); return t ? `<div class="wk-tags">${t}</div>` : ''; })()}
         ${evHtml}
         <details class="dayover" data-ws="${ws}" ${openDays.has(ws) || overrides.length ? 'open' : ''}><summary>日ごとに変える${overrides.length ? `(${overrides.length}日)` : ''}</summary><div class="stack">${days}</div></details>
       </section>`;
@@ -901,6 +912,13 @@ function viewMenu(root) {
     <a href="#about"><span>このアプリについて<small>非公式の明記・データの扱い</small></span>›</a>
   </section>`;
 }
+
+// ================= 満月(GSD)・新月(NMD)の印 =================
+// 満月・新月の日とその前後1日に付ける利用者の印。色だけに頼らず、○(満月)/●(新月)と文字で示す
+const MOON_ICON = { full: '○', new: '●' };
+const MOON_NAME = { full: '満月', new: '新月' };
+const moonSpanLabel = sp => `${MOON_ICON[sp.phase]}${sp.mark} ${Calc.fmtMd(sp.from)}〜${Calc.fmtMd(sp.to)}`;
+const moonTags = (from, to) => Moon.spansBetween(from, to).map(sp => `<span class="moon-tag ${sp.phase}">${moonSpanLabel(sp)}</span>`).join('');
 
 // ================= 公式イベント =================
 // イベントの一覧(タイトル・期間・公式記事へのリンクだけ。公式の本文・画像は出さない)
