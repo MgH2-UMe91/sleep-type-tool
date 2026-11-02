@@ -874,7 +874,7 @@ function viewStats(root) {
       <div class="seg trend-seg" role="group" aria-label="傾向の期間">
         ${Object.keys(TREND_SEG).map(p => `<button data-p="${p}" aria-pressed="${period === p}">${TREND_SEG[p]}</button>`).join('')}
       </div>
-      <div class="row"><b>${TREND_LABEL[period]}</b><span class="small muted">${tr.n}件</span>${tr.n ? `<span class="ref">${tr.level}</span>` : ''}
+      <div class="row"><b>${TREND_LABEL[period]}</b><span class="small muted">${tr.typed}件で算出</span>${tr.typed ? `<span class="ref">${tr.level}</span>` : ''}
         ${tr.excludedCount ? `<span class="exm-tag">除外 ${tr.excludedCount}件${tr.excludeApplied ? '' : '(この期間は適用しない)'}</span>` : ''}</div>
       ${tr.n ? `
       <h3 class="small-h">タイプの出やすさ(何%の夜に出たか)</h3>
@@ -882,7 +882,7 @@ function viewStats(root) {
         <tr><th></th><th>夜の割合</th><th>回数</th></tr>
         ${['uto', 'suya', 'gus', 'none'].map(k => `<tr><td>${tchip(k)}</td><td class="num">${tr.typed ? tr.rate[k].toFixed(1) + '%' : '—'}</td><td class="num">${tr.counts[k]}/${tr.typed}</td></tr>`).join('')}
       </table></div>
-      ${tr.untyped ? `<p class="small muted">タイプが未記録の${tr.untyped}件は、出やすさの数から除いています。</p>` : ''}
+      ${tr.untyped ? `<p class="small muted">タイプが未記録の${tr.untyped}件は、出やすさと件数の目安から除いています(割合の平均・ばらつきは${tr.n}件で算出)。</p>` : ''}
       <h3 class="small-h">割合の平均とばらつき</h3>
       <div class="tbl-wrap"><table>
         <tr><th></th><th>平均</th><th>標準偏差</th></tr>
@@ -891,9 +891,9 @@ function viewStats(root) {
       <p class="small">出やすさは、あなたの記録から数えた実績に基づく目安です(ゲームの内部の判定は公開されていないため、推測を含みます)。</p>
       <ul class="small muted" style="margin:0;padding-left:1.2em">
         <li>直近30回:ゲームの平均に近い基準(推定)。全期間:記録全体から見た、普段のあなたの姿。</li>
-        <li>件数の目安:30回未満=参考値、30〜99回=目安、100回以上=安定。</li>
+        <li>件数の目安:30回未満=参考値、30〜99回=目安、100回以上=安定。数えるのは実際に算出に使った件数(除外した記録とタイプが未記録の記録を除く)です。</li>
         <li>「傾向から除外」した記録(嘘寝など)は、直近100回・全期間では数えません。直近30回(ゲームの平均)には除外を適用しません。ゲーム側ではこうした記録も平均に入るため、そのままのほうがゲームの判定に近くなります。</li>
-        <li>狙うタイプが全期間で${USUAL_RATE_PCT}%以上の夜に出ていれば、ホームで「普段どおりで十分です」と案内します(記録${TREND_MIN_N}件以上のとき)。</li>
+        <li>狙うタイプが全期間で${USUAL_RATE_PCT}%以上の夜に出ていれば、ホームで「普段どおりで十分です」と案内します(算出に使った記録が${TREND_MIN_N}件以上のとき)。</li>
       </ul>
     </section>
     ${(() => {

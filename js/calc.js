@@ -62,7 +62,7 @@ const Calc = (() => {
     const typed = counts.none + counts.uto + counts.suya + counts.gus;
     const rate = {};
     for (const k in counts) rate[k] = typed ? counts[k] / typed * 100 : null;
-    return { n: rs.length, typed, untyped: rs.length - typed, counts, rate, stats: stats(rs), level: reliability(rs.length) };
+    return { n: rs.length, typed, untyped: rs.length - typed, counts, rate, stats: stats(rs), level: reliability(typed) };
   }
 
   // 基準日(含む)までの記録の傾向。period: 'r30' | 'r100' | 'all'
