@@ -114,6 +114,14 @@ function avgBlock(st, label) {
 }
 
 // ================= ホーム =================
+// ホーム画面に追加したアプリ(standalone)として開いているか。iOS は navigator.standalone も見る
+// ブラウザ版とアプリ版は localStorage が別なので、記録も別々に保存される
+const isStandalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+// 「ブラウザ版です」の案内を閉じたか。保存できない環境では、その画面のあいだだけ閉じる
+const BROWSER_NOTE_KEY = 'sleep-type-tool-browser-note-closed';
+let browserNoteClosed = false;
+const browserNoteHidden = () => { if (browserNoteClosed) return true; try { return localStorage.getItem(BROWSER_NOTE_KEY) === '1'; } catch (e) { return false; } };
+
 function viewHome(root) {
   // 「今夜」の日付。早朝(NIGHT_START_HOUR 時より前)は前日の夜として扱う。入力の初期日付と同じ規則
   const today = tonightYmd();
@@ -128,7 +136,12 @@ function viewHome(root) {
   const needBackup = recs.length > 0 && (lastExp === null || expDays >= s.backupRemindDays);
   const last = recs[recs.length - 1];
 
+  const standalone = isStandalone();
   root.innerHTML = `
+  ${!standalone && !browserNoteHidden() ? `<section class="note-bar small" id="browserNote">
+    <p>ここはブラウザ版です。ホーム画面に追加したアプリとは記録が別々に保存されます。普段使うほうを1つに決めてください(追加の手順は<a href="#about">このアプリについて</a>)。</p>
+    <button type="button" class="note-x" id="browserNoteX" aria-label="この案内を閉じる">✕</button></section>` : ''}
+  ${standalone && !recs.length ? `<section class="msg ok">記録を引き継ぐには、ブラウザ版の「データ管理」で JSON を書き出し、ここの<a href="#data">データ管理</a>から読み込んでください。</section>` : ''}
   <section class="card hero ${plan.type ? 'k-' + plan.type : ''}">
     <div class="row"><span class="small muted">${fmtDateLong(today)}の夜</span><span class="guess">推定にもとづく提案</span></div>
     <p class="next-aim"><span class="muted small">次の狙い</span><b>${esc(plan.next)}</b></p>
@@ -162,6 +175,12 @@ function viewHome(root) {
     <a class="btn" href="#input">記録を入力</a>
     <a class="btn ghost" href="#calendar">カレンダー</a>
   </div>`;
+  const nx = $('#browserNoteX', root);
+  if (nx) nx.onclick = () => {
+    browserNoteClosed = true;
+    try { localStorage.setItem(BROWSER_NOTE_KEY, '1'); } catch (e) { /* 保存できなくても閉じる */ }
+    $('#browserNote', root).remove();
+  };
 }
 
 // 読み取りの詳細(折りたたみ)。実機で読めなかったとき、この部分のスクショを送ってもらえば原因を調べられる
@@ -1036,6 +1055,15 @@ function viewAbout(root) {
       <li>毎朝、スクショを<a href="#input">入力</a>で読み取って保存します(1枚でも同じ画面)。手入力もできます。</li>
       <li><a href="#targets">狙い設定</a>で週ごとの狙いを決めると、ホームに今夜の過ごし方が出ます。</li>
     </ol>
+  </section>
+  <section class="card">
+    <h2>ホーム画面に追加する</h2>
+    <ul class="small" style="margin:0;padding-left:1.2em">
+      <li>iPhone:Safari で開き、共有ボタン(□に↑)→「ホーム画面に追加」。</li>
+      <li>Android:Chrome で開き、右上の︙→「ホーム画面に追加」(または「アプリをインストール」)。</li>
+      <li>ブラウザ版とホーム画面のアプリは、記録が別々に保存されます。普段使うほうを1つに決めてください。</li>
+      <li>移すときは、移す元の<a href="#data">データ管理</a>で JSON を書き出し、移す先のデータ管理で読み込みます。</li>
+    </ul>
   </section>
   <section class="card">
     <h2>推定について</h2>
