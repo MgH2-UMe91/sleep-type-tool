@@ -84,6 +84,7 @@ function route() {
   const view = VIEWS[name] ? name : 'home';
   if (cleanup) { cleanup(); cleanup = null; }
   $('#pageTitle').textContent = TITLES[view];
+  $('.topbar .byline').hidden = view !== 'home'; // 「for ポケモンスリープ」はアプリ名の横にだけ
   document.title = view === 'home' ? FULL_NAME : `${TITLES[view]} | ${FULL_NAME}`;
   $$('.tabbar a').forEach(a => a.toggleAttribute('aria-current', false));
   const tab = $(`.tabbar a[data-tab="${TAB_OF[view] || view}"]`);
@@ -569,8 +570,6 @@ function viewCalendar(root, id, q) {
     // 同じ日数なら、その週の中で早い曜日から始まる(帯を右へ伸ばせる)ほう。日曜1日だけの側は選ばれにくい
     const startCol = k => { const [ws, ym] = k.split('|'); let x = e.from > ws ? e.from : ws; if (ymOf(x) < ym) x = ym + '-01'; return daysBetween(ws, x); };
     slotOf[e.id] = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || startCol(a) - startCol(b) || (a < b ? -1 : 1))[0];
-    // NMD・GSD のイベントは、週をまたぐときも最終日のある(後の)週に出す
-    if (Events.isMoonDay(e) && e.to) slotOf[e.id] = mondayOf(e.to) + '|' + ymOf(e.to);
   }
   // 公式の NMD・GSD イベントと重なる月相の期間は、●NMD/○GSD の札を出さない(回数つきの公式の表記だけにする)
   const moonKindOf = e => /ニュームーンデー/.test(e.title) ? 'new' : /グッドスリープデー/.test(e.title) ? 'full' : null;
@@ -618,12 +617,13 @@ function viewCalendar(root, id, q) {
       }
       // この週(この月の分)に開催中のイベント名を短くして並べる
       const wfrom = ymOf(ws) === ym ? ws : first, wto = ymOf(addDays(ws, 6)) === ym ? addDays(ws, 6) : addDays(addMonths(ym, 1) + '-01', -1);
-      // イベントの帯は、期間の日がいちばん多く入る週の行にだけ出す(ほかの週では繰り返さない。開催中の日はマスの下の線で分かる)
+      // イベントの帯は、期間の日がいちばん多く入る週の行にだけ出す(ほかの週では繰り返さない。開催中の日はマスの下の線で分かる)。
+      // NMD・GSD のイベントだけは、期間の日が1日でも入る週すべてに出す
       const wevs = [];
       for (let i = 0; i < 7; i++) {
         const day = addDays(ws, i);
         if (ymOf(day) !== ym) continue;
-        for (const e of evByDate[day] || []) if (!wevs.includes(e) && slotOf[e.id] === ws + '|' + ym) wevs.push(e);
+        for (const e of evByDate[day] || []) if (!wevs.includes(e) && (Events.isMoonDay(e) || slotOf[e.id] === ws + '|' + ym)) wevs.push(e);
       }
       // 帯はその週の開始日の列から(終了日の列まで)。段への詰め方と、文字が収まらないときの伸ばし方は layoutBars() が決める
       const col = day => daysBetween(ws, day) + 1;
@@ -632,17 +632,17 @@ function viewCalendar(root, id, q) {
       if (wt) bars.push(`<span class="bar wk-tag t-${wt.target}" data-s="1" data-e="1">${TYPE_LABEL[wt.target]}を狙う週</span>`);
       for (const e of wevs) {
         const [a, b] = clip(e.from, e.to);
-        const yami = Events.isYami(e);
+        const yami = Events.isYami(e), md = Events.isMoonDay(e);
         const name = Events.displayTitle(e.title).replace(/^【[^】]*】\s*/, '').replace(/[「」]/g, '');
-        bars.push(`<button type="button" class="bar ev-bar ${yami ? 'free' : ''} ${Events.isMoonDay(e) ? 'moon-ev' : ''}" data-s="${col(a)}" data-e="${col(b)}"
+        bars.push(`<button type="button" class="bar ev-bar ${yami ? 'free' : ''} ${md ? 'moon-ev' : ''}" data-s="${col(a)}" data-e="${col(b)}"${md ? ` data-fixed="1" data-short="${/グッドスリープデー/.test(e.title) ? 'GSD' : 'NMD'}"` : ''}
           data-full="${esc(Events.displayTitle(e.title))}${yami ? `(${YAMI}:${YAMI_NOTE}イベント)` : ''}" data-period="${esc(Events.periodLabel(e))}">${yami ? `<b>${YAMI}</b>` : ''}${esc(name)}</button>`);
       }
       // GSD/NMD:その日の列の真上だけに短い札(日付の範囲は書かない)。列の位置は動かさない。
-      // 週(月)をまたぐときは最終日のある後の週にだけ出す。公式のイベントがあれば出さない
+      // 期間の日が1日でも入る週すべてに出す。公式のイベントがあれば出さない(回数つきの公式の帯が代わりに出る)
       for (const sp of Moon.spansBetween(wfrom, wto)) {
-        if (sp.to < wfrom || sp.to > wto || hasOfficial(sp)) continue;
+        if (hasOfficial(sp)) continue;
         const [a, b] = clip(sp.from, sp.to);
-        bars.push(`<button type="button" class="bar moon-bar ${sp.phase}" data-s="${col(a)}" data-e="${col(b)}" data-fixed="1"
+        bars.push(`<button type="button" class="bar moon-bar ${sp.phase}" data-s="${col(a)}" data-e="${col(b)}" data-fixed="1" data-short="${sp.mark}"
           data-full="${sp.mark}(${MOON_NAME[sp.phase]}の前後)" data-period="${esc(`${Calc.fmtMd(sp.from)}〜${Calc.fmtMd(sp.to)}(${MOON_NAME[sp.phase]} ${fmtDate(sp.center)} ${sp.time})`)}">${MOON_ICON[sp.phase]}${sp.mark}</button>`);
       }
       html += `<div class="cal-week ${wt ? 'aim k-' + wt.target : ''}">
@@ -676,16 +676,12 @@ function viewCalendar(root, id, q) {
       const rows = []; // rows[r][c] = 使用中
       const free = (r, a, b) => { for (let c = a; c <= b; c++) if (rows[r] && rows[r][c]) return false; return true; };
       const take = (r, a, b) => { rows[r] = rows[r] || []; for (let c = a; c <= b; c++) rows[r][c] = true; };
-      for (const el of [...box.children]) {
+      const items = [...box.children];
+      for (const el of items.filter(x => !x.dataset.fixed)) {
         el.style.gridColumn = '1 / 2';
         const need = colsFor(el.scrollWidth + 1); // 文字に必要な列数
         const s = Number(el.dataset.s), e = Number(el.dataset.e);
         let spot = null;
-        if (el.dataset.fixed) {
-          let r = 0; while (!free(r, s, e)) r++;
-          take(r, s, e); el.style.gridRow = String(r + 1); el.style.gridColumn = `${s} / ${e + 1}`;
-          continue;
-        }
         // 上の段から順に、イベントの期間内(開始列〜終了列)の空きを探す
         for (let r = 0; r < rows.length && !spot; r++) {
           for (let c = s; c <= e && !spot; c++) {
@@ -699,6 +695,15 @@ function viewCalendar(root, id, q) {
         take(...spot);
         el.style.gridRow = String(spot[0] + 1);
         el.style.gridColumn = `${spot[1]} / ${spot[2] + 1}`;
+      }
+      // NMD・GSD(公式の回数つきの帯と ●NMD/○GSD の札)は、狙う週の札・イベントの帯より下の段に、その日の列だけに置く。
+      // 幅に収まらなければ「NMD」「GSD」とだけ書く
+      const base = rows.length;
+      for (const el of items.filter(x => x.dataset.fixed)) {
+        const s = Number(el.dataset.s), e = Number(el.dataset.e);
+        let r = base; while (!free(r, s, e)) r++;
+        take(r, s, e); el.style.gridRow = String(r + 1); el.style.gridColumn = `${s} / ${e + 1}`;
+        if (el.scrollWidth > el.clientWidth + 1 && el.dataset.short) { el.textContent = el.dataset.short; el.classList.add('short'); }
       }
       if (!box.children.length) box.remove(); // 帯が全部なくなった週は、空の段を残さない
     }

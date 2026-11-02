@@ -143,10 +143,11 @@ th { color: var(--muted); font-size: .78rem; font-weight: 700; }
 .cal-wd span { text-align: center; font-size: .72rem; color: var(--muted); }
 .cal-wd .sat { color: #3a6fd8; } .cal-wd .sun { color: #d14a3f; }
 .cal-week { margin-top: 3px; }
-.cal-week.aim { border-left: 4px solid; padding-left: 3px; border-radius: 6px; }
-.cal-week.k-uto { border-left-color: var(--t-uto); }
-.cal-week.k-suya { border-left-color: var(--t-suya); }
-.cal-week.k-gus { border-left-color: var(--t-gus); }
+/* 狙う週:札・帯・7日分のマスをまとめてタイプの色の枠で囲み、ごく薄く色を敷く(月をまたぐ週は月ごとの行がそれぞれ囲まれる) */
+.cal-week.aim { --wk: var(--accent); border: 2px solid var(--wk); background: color-mix(in srgb, var(--wk) 10%, transparent); padding: 3px; border-radius: 8px; }
+.cal-week.k-uto { --wk: var(--t-uto); }
+.cal-week.k-suya { --wk: var(--t-suya); }
+.cal-week.k-gus { --wk: var(--t-gus); }
 .wk-tag { display: inline-block; font-size: .68rem; font-weight: 700; padding: 0 6px; border-radius: 4px; color: var(--chip-ink); margin: 2px 0; }
 .cal-days .day.blank { min-height: 58px; }
 .cal-days button.day {
@@ -260,6 +261,7 @@ dialog form { display: flex; flex-direction: column; gap: 14px; }
 .wk-bars .moon-bar { border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-align: center; padding: 0 2px; }
 .wk-bars .moon-bar.full { border-color: #c9a227; }
 .wk-bars .moon-bar.new { border-color: #6b7280; }
+.wk-bars .bar.short { text-align: center; padding: 0 1px; text-overflow: clip; } /* 1列幅の「NMD」「GSD」 */
 :root[data-theme="dark"] .wk-bars .ev-bar { background: #3a2f63; color: #ddd2ff; }
 :root[data-theme="dark"] .wk-bars .ev-bar.free { background: #4a2a1f; color: #ffc9b5; }
 @media (prefers-color-scheme: dark) {
