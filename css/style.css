@@ -135,6 +135,12 @@ input.bad, select.bad { border-color: var(--err); background: var(--err-soft); }
 .avg3-legend { color: var(--muted); }
 .avg3-row { gap: 4px; }
 .avg3-head { gap: 4px 8px; }
+/* 今夜、普通に寝たら */
+.likely-big { margin: 0; font-size: 1rem; }
+.likely-big b { font-size: 1.2rem; }
+.avg4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0 4px; }
+.avg4 > span { white-space: nowrap; min-width: 0; }
+.avg4 b { font-size: .95rem; margin-right: 2px; }
 /* 狙い週の窓 */
 .wincard .aimv { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
 .wincard details summary { cursor: pointer; color: var(--accent); }

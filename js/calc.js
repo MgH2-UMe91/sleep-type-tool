@@ -87,14 +87,35 @@ const Calc = (() => {
     .filter(r => !r.excluded && r.sleepMin != null && r.sleepMin < SUSPECT_SLEEP_MIN && (r.type === 'gus' || r.gusPct >= 50))
     .reverse();
 
-  // その夜の推定タイプ:その夜より前の平均と比べ、平均より一番多く出たもの。差が小さければ「とくちょうなし」
-  function estimateType(rec, range = 'count') {
-    const prior = stats(pick(Store.records(), rec.date, range, { before: rec }));
-    if (!prior.n) return null;
+  // 割合 rec を平均 prior と比べたときのタイプ:平均より一番多く出たもの。差が NEAR_AVG_PT 未満なら「とくちょうなし」
+  function classify(rec, prior) {
     let best = null, bestDiff = -Infinity;
     const diffs = {};
     for (const k of KINDS) { diffs[k] = rec[PCT_KEY[k]] - prior[k].mean; if (diffs[k] > bestDiff) { bestDiff = diffs[k]; best = k; } }
-    return { type: bestDiff < NEAR_AVG_PT ? 'none' : best, diffs, prior };
+    return { type: bestDiff < NEAR_AVG_PT ? 'none' : best, diffs };
+  }
+
+  // その夜の推定タイプ:その夜より前の平均と比べる
+  function estimateType(rec, range = 'count') {
+    const prior = stats(pick(Store.records(), rec.date, range, { before: rec }));
+    if (!prior.n) return null;
+    return { ...classify(rec, prior), prior };
+  }
+
+  // 今夜、普段どおりに寝たら出やすいタイプ(推定)。
+  // 基準は今の直近30回の平均(ゲームが今夜の判定に使う平均)。過去の各夜(集計外を除く、タイプと割合のある記録)が
+  // 「今夜その割合だったら」どのタイプになるかを classify で数え、その比率を出やすさとする
+  function likelyTonight(date) {
+    const all = Store.records().filter(r => r.date <= date);
+    const base = stats(pick(all, date, 'count'));
+    const pool = all.filter(r => !r.excluded && r.type);
+    const counts = { uto: 0, suya: 0, gus: 0, none: 0 };
+    if (base.n) for (const r of pool) counts[classify(r, base).type]++;
+    const n = base.n ? pool.length : 0;
+    const rate = {};
+    for (const k in counts) rate[k] = n ? counts[k] / n * 100 : null;
+    const best = n ? Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] : null;
+    return { n, counts, rate, best, level: reliability(n), enough: n >= TREND_MIN_N, base };
   }
 
   // ---------- 狙う週に向けたおすすめ ----------
@@ -264,5 +285,5 @@ const Calc = (() => {
   }
 
   return { pick, stats, averageAt, reliability, tendency, tendencyAt, suspicious, estimateType, planFor, windowDays, perDayAt, upcomingTargets,
-    windowAt, projectAverage, abandonImpact, missingDays, spanMin, fmtMd };
+    windowAt, projectAverage, abandonImpact, likelyTonight, missingDays, spanMin, fmtMd };
 })();

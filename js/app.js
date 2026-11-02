@@ -202,6 +202,28 @@ function windowCard(today) {
   </section>`;
 }
 
+// ホーム:今夜、普段どおりに寝たら出やすいタイプ(推定)
+function likelyCard(today, plan) {
+  const lt = Calc.likelyTonight(today);
+  if (!lt.n && !Store.records().length) return '';
+  const order = ['uto', 'suya', 'gus', 'none'];
+  let body;
+  if (!lt.enough) body = `<p class="small muted">記録が${TREND_MIN_N}件たまると表示します(いま${lt.n}件)。</p>`;
+  else {
+    const aim = (plan.kind === 'aim' || plan.kind === 'prep' || plan.kind === 'usual') && plan.aim && plan.aim !== lt.best ? plan.aim : null;
+    body = `<p class="likely-big">普通に寝ると、<b>${TYPE_LABEL[lt.best]}</b>が出やすい<span class="small">(約${lt.rate[lt.best].toFixed(0)}%)</span></p>
+    <div class="avgbar" aria-hidden="true">${order.map(k => `<span class="t-${k}" style="width:${lt.rate[k]}%"></span>`).join('')}</div>
+    <div class="avg4 small">${order.map(k => `<span><span class="pct-label">${pctDot(k)}${SHORT[k]}</span><b class="num">${lt.rate[k].toFixed(0)}%</b><span class="muted">(${lt.counts[k]}回)</span></span>`).join('')}</div>
+    ${aim ? `<p class="small">狙う${TYPE_LABEL[aim]}は、普段どおりだと約${lt.rate[aim].toFixed(0)}%。</p>` : ''}
+    <div class="row"><span class="small muted">${lt.n}件から算出</span><span class="ref">${lt.level}</span></div>`;
+  }
+  return `<section class="card likely">
+    <h2 class="small-h">今夜、普通に寝たら(推定)</h2>
+    ${body}
+    <p class="small muted">あなたの過去の各夜の割合を、今の直近30回の平均と比べたら何タイプになるかを数えた割合です(集計外を除く)。ゲームの内部の判定は非公開のため推定です。</p>
+  </section>`;
+}
+
 // ================= ホーム =================
 // ホーム画面に追加したアプリ(standalone)として開いているか。iOS は navigator.standalone も見る
 // ブラウザ版とアプリ版は localStorage が別なので、記録も別々に保存される
@@ -247,6 +269,7 @@ function viewHome(root) {
     ${avgRows(today)}
     <p class="small muted"><a href="#stats">くわしい統計・3つの期間の比較</a></p>
   </section>
+  ${likelyCard(today, plan)}
   <div class="grid2">
     <a class="btn" href="#input">記録を入力</a>
     <a class="btn ghost" href="#calendar">カレンダー</a>
