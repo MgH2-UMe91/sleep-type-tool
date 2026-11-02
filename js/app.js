@@ -202,25 +202,33 @@ function windowCard(today) {
   </section>`;
 }
 
-// ホーム:今夜、普段どおりに寝たら出やすいタイプ(推定)
+// ホーム:今夜の睡眠タイプ予報(推定)。直近30回の平均(ゲームの基準)と直近100回の平均(普段の寝方)の差で見る
 function likelyCard(today, plan) {
   const lt = Calc.likelyTonight(today);
-  if (!lt.n && !Store.records().length) return '';
-  const order = ['uto', 'suya', 'gus', 'none'];
+  if (!Store.records().length) return '';
+  const sign = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
+  const uLabel = lt.partial ? `全期間(${lt.n}件)` : '直近100回';
   let body;
-  if (!lt.enough) body = `<p class="small muted">記録が${TREND_MIN_N}件たまると表示します(いま${lt.n}件)。</p>`;
+  if (!lt.enough) body = `<p class="small muted">記録が${TREND_MIN_N}件たまると表示します(いま${lt.n || 0}件)。</p>`;
   else {
-    const aim = (plan.kind === 'aim' || plan.kind === 'prep' || plan.kind === 'usual') && plan.aim && plan.aim !== lt.best ? plan.aim : null;
-    body = `<p class="likely-big">普通に寝ると、<b>${TYPE_LABEL[lt.best]}</b>が出やすい<span class="small">(約${lt.rate[lt.best].toFixed(0)}%)</span></p>
-    <div class="avgbar" aria-hidden="true">${order.map(k => `<span class="t-${k}" style="width:${lt.rate[k]}%"></span>`).join('')}</div>
-    <div class="avg4 small">${order.map(k => `<span><span class="pct-label">${pctDot(k)}${SHORT[k]}</span><b class="num">${lt.rate[k].toFixed(0)}%</b><span class="muted">(${lt.counts[k]}回)</span></span>`).join('')}</div>
-    ${aim ? `<p class="small">狙う${TYPE_LABEL[aim]}は、普段どおりだと約${lt.rate[aim].toFixed(0)}%。</p>` : ''}
-    <div class="row"><span class="small muted">${lt.n}件から算出</span><span class="ref">${lt.level}</span></div>`;
+    const t = lt.type;
+    const head = t === 'none'
+      ? `<p class="likely-big">今夜は<b>とくちょうなし</b>になりそう</p><p class="small muted">普通に寝た場合の推定。どのタイプも差が${NEAR_AVG_PT}ポイント未満です。</p>`
+      : `<p class="likely-big">今夜は<b>${TYPE_LABEL[t]}</b>が出やすそう</p><p class="small muted">普通に寝た場合の推定。${uLabel}の平均が直近30回の平均を${sign(lt.diffs[t])}ポイント上回っています。</p>`;
+    const aim = plan.aim && (plan.kind === 'aim' || plan.kind === 'prep' || plan.kind === 'usual') ? plan.aim : null;
+    body = `${head}
+    <div class="tbl-wrap"><table class="likely-tbl">
+      <tr><th></th><th>直近30回<br><small>ゲームの基準</small></th><th>${uLabel}<br><small>普段の寝方</small></th><th>差</th></tr>
+      ${KINDS.map(k => `<tr${k === lt.top ? ' class="top"' : ''}><td><span class="pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span></td>
+        <td class="num">${fmtPct(lt.base[k].mean)}%</td><td class="num">${fmtPct(lt.usual[k].mean)}%</td><td class="num">${sign(lt.diffs[k])}</td></tr>`).join('')}
+    </table></div>
+    ${aim ? `<p class="small">狙う${TYPE_LABEL[aim]}は${lt.diffs[aim] >= NEAR_AVG_PT ? '出やすい側' : lt.diffs[aim] > 0 ? 'やや出やすい側' : '出にくい側'}です(差 ${sign(lt.diffs[aim])})。</p>` : ''}
+    ${lt.partial ? `<div class="row"><span class="small muted">普段の寝方は${lt.n}件から算出</span><span class="ref">${lt.level}</span></div>` : ''}`;
   }
   return `<section class="card likely">
-    <h2 class="small-h">今夜、普通に寝たら(推定)</h2>
+    <h2 class="small-h">🌙 今夜の睡眠タイプ予報</h2>
     ${body}
-    <p class="small muted">あなたの過去の各夜の割合を、今の直近30回の平均と比べたら何タイプになるかを数えた割合です(集計外を除く)。ゲームの内部の判定は非公開のため推定です。</p>
+    <p class="small muted">差がプラスのタイプほど、普通に寝たときに直近30回の平均を上回りやすく、出やすいと考えます。差が${NEAR_AVG_PT}ポイント未満ならとくちょうなし。ゲームの内部の判定は非公開のため推定です。</p>
   </section>`;
 }
 

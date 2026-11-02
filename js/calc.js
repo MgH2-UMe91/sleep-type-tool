@@ -102,20 +102,15 @@ const Calc = (() => {
     return { ...classify(rec, prior), prior };
   }
 
-  // 今夜、普段どおりに寝たら出やすいタイプ(推定)。
-  // 基準は今の直近30回の平均(ゲームが今夜の判定に使う平均)。過去の各夜(集計外を除く、タイプと割合のある記録)が
-  // 「今夜その割合だったら」どのタイプになるかを classify で数え、その比率を出やすさとする
+  // 今夜の睡眠タイプ予報(推定)。ゲームの基準(直近30回の平均)と、普段の寝方(直近100回の平均。集計外を除き、100件に満たなければ全期間)を比べ、
+  // 普段の平均が基準を一番上回るタイプを「普通に寝ると出やすい」とする。差が NEAR_AVG_PT 未満なら「とくちょうなし」(classify と同じ規則)
   function likelyTonight(date) {
-    const all = Store.records().filter(r => r.date <= date);
-    const base = stats(pick(all, date, 'count'));
-    const pool = all.filter(r => !r.excluded && r.type);
-    const counts = { uto: 0, suya: 0, gus: 0, none: 0 };
-    if (base.n) for (const r of pool) counts[classify(r, base).type]++;
-    const n = base.n ? pool.length : 0;
-    const rate = {};
-    for (const k in counts) rate[k] = n ? counts[k] / n * 100 : null;
-    const best = n ? Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] : null;
-    return { n, counts, rate, best, level: reliability(n), enough: n >= TREND_MIN_N, base };
+    const base = tendencyAt(date, 'r30').stats, us = tendencyAt(date, 'r100'), usual = us.stats;
+    if (!base.n || !usual.n) return { n: usual.n, enough: false };
+    const c = classify({ utoPct: usual.uto.mean, suyaPct: usual.suya.mean, gusPct: usual.gus.mean }, base);
+    const top = KINDS.reduce((a, k) => c.diffs[k] > c.diffs[a] ? k : a, KINDS[0]);
+    return { n: usual.n, level: reliability(us.typed), enough: usual.n >= TREND_MIN_N, partial: usual.n < 100,
+      type: c.type, top, diffs: c.diffs, base, usual };
   }
 
   // ---------- 狙う週に向けたおすすめ ----------
