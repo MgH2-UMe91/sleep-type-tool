@@ -1006,6 +1006,18 @@ function viewTargets(root) {
 const TREND_LABEL = { r30: '直近30回(ゲームの平均)', r100: '直近100回', all: '全期間(本来の姿)' };
 const TREND_SEG = { r30: '直近30回<small>ゲームの平均</small>', r100: '直近100回', all: '全期間<small>本来の姿</small>' };
 
+// 統計の折りたたみ(怪しい記録・集計外の記録)の開閉。保存できない環境では、その画面のあいだだけ覚える
+const FOLD_KEY = 'sleep-type-tool-folds';
+const foldMem = {};
+function foldOpen(key) {
+  if (key in foldMem) return foldMem[key];
+  try { return !!(JSON.parse(localStorage.getItem(FOLD_KEY) || '{}')[key]); } catch (e) { return false; }
+}
+function setFoldOpen(key, open) {
+  foldMem[key] = open;
+  try { const o = JSON.parse(localStorage.getItem(FOLD_KEY) || '{}'); o[key] = open; localStorage.setItem(FOLD_KEY, JSON.stringify(o)); } catch (e) { /* 保存できなくてもよい */ }
+}
+
 function viewStats(root) {
   // 平均の基準は直近30回。直近30日は将来の検証用の参考表示(切り替えは保存しない)
   let range = 'count', period = 'all';
@@ -1049,11 +1061,15 @@ function viewStats(root) {
     </section>
     ${(() => {
       const sus = Calc.suspicious(), exd = Store.records().filter(r => r.excluded).reverse();
-      const line = (r, act) => `<div class="row"><span class="small">${fmtDate(r.date)} ${r.bedTime || ''}</span>${tchip(r.type)}<span class="small muted">${r.sleepMin != null ? minToHm(r.sleepMin) : '—'} · ${r.utoPct}/${r.suyaPct}/${r.gusPct}</span>
-        <button type="button" class="btn ghost small" data-${act}="${esc(r.id)}" style="margin-left:auto">${act === 'ex' ? '集計外にする' : '集計外を解除'}</button></div>`;
-      return (sus.length ? `<section class="card"><h2 class="small-h">怪しい記録(睡眠${SUSPECT_SLEEP_MIN / 60}時間未満なのにぐっすり)</h2>
-        <p class="small muted">計測ミスや放置などなら「集計外にする」で、「自分の傾向」の100回・全期間から外せます。</p><div class="stack">${sus.map(r => line(r, 'ex')).join('')}</div></section>` : '')
-        + (exd.length ? `<section class="card"><h2 class="small-h">集計外の記録(${exd.length}件)</h2><div class="stack">${exd.map(r => line(r, 'unex')).join('')}</div></section>` : '');
+      // 1件1行:日付・タイプ・睡眠時間・割合・ボタン
+      const line = (r, act) => `<div class="rec-line"><span class="num">${fmtDate(r.date)}</span><span class="tl ${r.type ? 't-' + r.type : 't-empty'}">${SHORT[r.type]}</span>
+        <span class="muted num">${r.sleepMin != null ? minToHm(r.sleepMin) : '—'} ${r.utoPct}/${r.suyaPct}/${r.gusPct}</span>
+        <button type="button" class="mini-btn" data-${act}="${esc(r.id)}">${act === 'ex' ? '集計外にする' : '集計外を解除'}</button></div>`;
+      // 見出しをタップで開閉(初めは閉じる)。中は高さを固定してスクロール
+      const fold = (key, title, inner) => `<details class="card fold" data-fold="${key}" ${foldOpen(key) ? 'open' : ''}><summary><h2 class="small-h">${title}</h2></summary>${inner}</details>`;
+      return (sus.length ? fold('sus', `怪しい記録(${sus.length}件)`, `<p class="small muted">睡眠${SUSPECT_SLEEP_MIN / 60}時間未満なのにぐっすりの記録です。計測ミスや放置などなら「集計外にする」で、「自分の傾向」の100回・全期間から外せます。</p>
+        <div class="rec-list">${sus.map(r => line(r, 'ex')).join('')}</div>`) : '')
+        + (exd.length ? fold('exd', `集計外の記録(${exd.length}件)`, `<div class="rec-list">${exd.map(r => line(r, 'unex')).join('')}</div>`) : '');
     })()}
     <h2 class="small-h">平均(判定の基準)</h2>
     <div class="seg" role="group" aria-label="集計範囲">
@@ -1076,6 +1092,7 @@ function viewStats(root) {
     </section>`;
     $$('.seg button[data-r]', root).forEach(b => b.onclick = () => { range = b.dataset.r; render(); });
     $$('.seg button[data-p]', root).forEach(b => b.onclick = () => { period = b.dataset.p; render(); });
+    $$('details[data-fold]', root).forEach(el => el.addEventListener('toggle', () => setFoldOpen(el.dataset.fold, el.open)));
     $$('button[data-ex]', root).forEach(b => b.onclick = () => { Store.setExcluded(b.dataset.ex, true); toast('集計外にしました'); render(); });
     $$('button[data-unex]', root).forEach(b => b.onclick = () => { Store.setExcluded(b.dataset.unex, false); toast('集計外を解除しました'); render(); });
   }

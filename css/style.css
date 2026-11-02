@@ -135,6 +135,17 @@ input.bad, select.bad { border-color: var(--err); background: var(--err-soft); }
 .avg3-legend { color: var(--muted); }
 .avg3-row { gap: 4px; }
 .avg3-head { gap: 4px 8px; }
+/* 統計の折りたたみリスト(怪しい記録・集計外の記録) */
+details.fold > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; min-height: 32px; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::before { content: "▸"; color: var(--accent); }
+details.fold[open] > summary::before { content: "▾"; }
+details.fold > summary h2 { margin: 0; }
+.rec-list { max-height: 18rem; overflow-y: auto; border-top: 1px solid var(--line); }
+.rec-line { display: flex; align-items: center; gap: 6px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: .8rem; white-space: nowrap; }
+.rec-line .tl { font-size: .65rem; font-weight: 700; padding: 0 4px; border-radius: 4px; color: var(--chip-ink); }
+.rec-line .muted { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.mini-btn { margin-left: auto; flex: none; font: inherit; font-size: .72rem; padding: 3px 8px; min-height: 28px; border-radius: 8px; border: 1px solid var(--accent); background: none; color: var(--accent); cursor: pointer; }
 /* 今夜、普通に寝たら */
 .likely-big { margin: 0; font-size: 1rem; }
 .likely-big b { font-size: 1.2rem; }
