@@ -73,8 +73,8 @@ const FULL_NAME = `${APP_NAME} for ${FOR_GAME}`;
 // 公式イベントの typeFree(どのタイプのポケモンも出る)の呼び名。内部のデータ名は typeFree のまま
 const YAMI = '【闇鍋】';
 const YAMI_NOTE = 'どのタイプのポケモンも出る';
-const TITLES = { home: APP_NAME, input: '入力', bulk: '一括取り込み', calendar: 'カレンダー', targets: '狙い設定', stats: '統計', data: 'データ管理', about: 'このアプリについて', menu: 'メニュー', events: 'イベント' };
-const TAB_OF = { bulk: 'menu', targets: 'menu', data: 'menu', about: 'menu', events: 'menu' };
+const TITLES = { home: APP_NAME, input: '入力', bulk: '入力', calendar: 'カレンダー', targets: '狙い設定', stats: '統計', data: 'データ管理', about: 'このアプリについて', menu: 'メニュー', events: 'イベント' };
+const TAB_OF = { bulk: 'input', targets: 'menu', data: 'menu', about: 'menu', events: 'menu' };
 let cleanup = null;
 
 function route() {
@@ -159,7 +159,7 @@ function viewHome(root) {
     <span class="small muted">${last.sleepMin != null ? minToHm(last.sleepMin) : ''}</span></div></section>` : ''}
   <div class="grid2">
     <a class="btn" href="#input">記録を入力</a>
-    <a class="btn ghost" href="#bulk">スクショをまとめて</a>
+    <a class="btn ghost" href="#calendar">カレンダー</a>
   </div>`;
 }
 
@@ -261,18 +261,11 @@ const defaultDate = () => addDays(tonightYmd(), -1);
 function viewInput(root, id, q) {
   const editing = id ? Store.get().records.find(r => r.id === id) : null;
   const r = editing || { date: q.date || defaultDate(), bedTime: '', wakeTime: '', sleepMin: null, type: '', memo: '', source: 'manual' };
-  let source = r.source, ocrSnapshot = null;
+  const source = r.source;
 
   root.innerHTML = `
-  ${editing ? '' : `<section class="card">
-    <h2>スクショから読み取る</h2>
-    <p class="small muted">睡眠結果の画面のスクショを選ぶと、下の欄に入ります。確認してから保存してください。画像は端末の外に送りません。</p>
-    <input type="file" id="shot" accept="image/*">
-    <img id="shotPrev" class="preview-img hidden" alt="選んだスクショ">
-    <p id="shotMsg" class="msg"></p>
-    <div id="shotDbg"></div>
-    <p class="small muted">何枚もまとめて入れるときは <a href="#bulk">一括取り込み</a></p>
-  </section>`}
+  ${editing ? '' : `<div id="shots"></div>
+  <details class="manual" id="manual" ${q.date ? 'open' : ''}><summary>スクショを使わずに手で入力する</summary>`}
   <form class="card" id="f" novalidate>
     <h2>${editing ? '記録を直す' : '手入力'}</h2>
     <label class="f">日付(ゲームの表示)<input type="date" name="date" value="${esc(r.date)}" required></label>
@@ -296,7 +289,9 @@ function viewInput(root, id, q) {
     <p id="formMsg" class="msg"></p>
     <button class="btn block" type="submit">${editing ? '更新する' : '保存する'}</button>
     ${editing ? '<button class="btn ghost block" type="button" id="del">この記録を削除</button>' : ''}
-  </form>`;
+  </form>${editing ? '' : '</details>'}`;
+  // スクショの読み取りは、1枚でも複数枚でも同じ流れ(選ぶ → 読み取り → 確認 → 保存)
+  if (!editing) mountShots($('#shots', root));
 
   const f = $('#f', root);
   const pct = attachPct(f);
@@ -325,36 +320,6 @@ function viewInput(root, id, q) {
 
   const current = () => ({ date: f.date.value, bedTime: f.bedTime.value, wakeTime: f.wakeTime.value, sleepMin: readSleep(), ...pct.read().vals, type: f.type.value });
 
-  // スクショ読み取り
-  const shot = $('#shot', root);
-  if (shot) shot.onchange = async () => {
-    const file = shot.files[0]; if (!file) return;
-    const prev = $('#shotPrev', root), m = $('#shotMsg', root);
-    prev.src = URL.createObjectURL(file); prev.classList.remove('hidden');
-    m.className = 'msg muted'; m.textContent = '読み取り中…(初回は文字認識の準備に数秒かかります)';
-    $('#shotDbg', root).replaceChildren();
-    try {
-      const res = await Ocr.analyzeFile(file);
-      $('#shotDbg', root).replaceChildren(debugDetails(res));
-      if (res.error) { m.className = 'msg err'; m.textContent = res.error; return; }
-      // 読めなかった項目は空欄にして強調する(既定値のまま保存されないように)
-      f.date.value = res.date || '';
-      f.bedTime.value = res.bedTime || ''; f.wakeTime.value = res.wakeTime || '';
-      sleepEdited = res.sleepMin != null; setSleep(res.sleepMin); syncSleep();
-      if (res.sleepMin == null) setSleep(null);
-      [[f.date, !res.date], [f.bedTime, !res.bedTime], [f.wakeTime, !res.wakeTime], [f.sleepH, res.sleepMin == null], [f.sleepM, res.sleepMin == null], [f.type, !res.type]]
-        .forEach(([el, bad]) => el.classList.toggle('bad', bad));
-      pct.set({ uto: res.rate[0], suya: res.rate[1], gus: res.rate[2] });
-      f.type.value = res.type || '';
-      source = 'ocr';
-      ocrSnapshot = JSON.stringify(current());
-      m.className = 'msg ' + (res.warnings.length ? 'warn' : 'ok');
-      m.innerHTML = res.warnings.length ? '要確認:' + res.warnings.map(esc).join(' / ') : `読み取りました(${res.ms}ms)。内容を確認して保存してください。`;
-    } catch (e) {
-      m.className = 'msg err'; m.textContent = '読み取りに失敗しました:' + e.message;
-    }
-  };
-
   // 強調した欄は、手で直したら元に戻す
   f.addEventListener('input', e => { if (!e.target.dataset.pct) e.target.classList.remove('bad'); });
   f.addEventListener('change', e => { if (!e.target.dataset.pct) e.target.classList.remove('bad'); });
@@ -371,9 +336,10 @@ function viewInput(root, id, q) {
     if (sm != null && (!okPart(f.sleepH.value, 23) || !okPart(f.sleepM.value, 59) || sm <= 0 || sm >= 1440)) errs.push('睡眠時間を確認してください(時間は0〜23、分は0〜59の整数)');
     if (errs.length) { fm.className = 'msg err'; fm.textContent = errs.join(' / '); return; }
     const cur = current();
-    if (source !== 'manual' && ocrSnapshot && JSON.stringify(cur) !== ocrSnapshot) source = 'ocr_edited';
     const rec = { ...(editing || {}), id: editing ? editing.id : Store.newId(), ...cur, utoPct: p.vals.uto, suyaPct: p.vals.suya, gusPct: p.vals.gus,
       autoField: p.autoField, memo: f.memo.value.trim(), excluded: f.excluded.checked, source };
+    // スクショから入れた記録を手で直したら「スクショ(修正あり)」にする
+    if (editing && source === 'ocr' && ['date', 'bedTime', 'wakeTime', 'sleepMin', 'utoPct', 'suyaPct', 'gusPct', 'type'].some(k => (rec[k] ?? '') !== (editing[k] ?? ''))) rec.source = 'ocr_edited';
     const dup = Store.findDuplicate(rec);
     if (dup && !(await ask(`${fmtDate(rec.date)} ${rec.bedTime || ''} の記録がすでにあります。それでも保存しますか?`, { ok: '保存する' }))) return;
     if (!dup && Store.findSameDateUnsure(rec) && !(await ask(`${fmtDate(rec.date)} の記録がすでにあります(就寝時刻がないため同じ夜か判断できません)。分割睡眠なら、そのまま保存してください。`, { ok: '保存する' }))) return;
@@ -387,21 +353,21 @@ function viewInput(root, id, q) {
     if (!(await ask('この記録を削除しますか?元に戻せません。', { ok: '削除する', danger: true }))) return;
     Store.deleteRecord(editing.id); toast('削除しました'); location.hash = `#calendar?d=${editing.date}`;
   };
-  return () => { const p = $('#shotPrev', root); if (p && p.src) URL.revokeObjectURL(p.src); };
 }
 
-// ================= 一括取り込み =================
-function viewBulk(root) {
+// ================= スクショの読み取り(1枚でも複数枚でも) =================
+// 入力画面の上に置く。選んだ枚数ぶん読み取り、確認して保存する。保存後はカレンダーのその日へ
+function mountShots(root) {
   let items = [];
   root.innerHTML = `
   <section class="card">
-    <h2>スクショをまとめて読み取る</h2>
-    <p class="small muted">過去分などを複数枚まとめて選べます。読み取り結果を確認して、まとめて保存します。画像は端末の外に送りません。</p>
+    <h2>スクショから読み取る</h2>
+    <p class="small muted">睡眠結果の画面のスクショを選んでください。1枚でも、過去分を何枚まとめてでも選べます。読み取り結果を確認してから保存します。画像は端末の外に送りません。</p>
     <input type="file" id="files" accept="image/*" multiple>
     <div id="prog" class="stack hidden"><div class="progress"><span></span></div><p class="small muted" id="progTxt"></p></div>
   </section>
   <section id="results" class="stack"></section>
-  <div id="saveBar" class="card hidden"><p class="small" id="saveSum"></p><button class="btn block" id="saveAll">チェックした記録をまとめて保存</button></div>`;
+  <div id="saveBar" class="card hidden"><p class="small" id="saveSum"></p><button class="btn block" id="saveAll">保存する</button></div>`;
 
   // 1件の状態を確認して、要確認の理由を返す
   function check(it, i) {
@@ -437,6 +403,7 @@ function viewBulk(root) {
       </div>
       <div class="grid3">${KINDS.map(k => `<label class="f"><span class="pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span><input type="number" inputmode="numeric" data-k="${PCT_KEY[k]}" value="${v[PCT_KEY[k]] ?? ''}"></label>`).join('')}</div>
       <label class="f">表示タイプ<select data-k="type">${typeOptions(v.type)}</select></label>
+      <label class="check"><input type="checkbox" data-k="excluded" ${v.excluded ? 'checked' : ''}>「自分の傾向」から除外する(嘘寝など)</label>
       ${it.ocr.bar ? `<p class="small muted">色帯の比率:${it.ocr.bar.join(' / ')}</p>` : ''}
       <div class="dbg-slot"></div>
     </div>`;
@@ -452,7 +419,7 @@ function viewBulk(root) {
       $('.w', el).textContent = it.warnings.length ? '要確認:' + it.warnings.join(' / ') : '';
       // 読めなかった(空の)欄・不正な欄を強調
       $$('[data-k]', el).forEach(inp => {
-        if (inp.type === 'checkbox') return;
+        if (inp.type === 'checkbox') return; // 保存する・除外のチェック
         const k = inp.dataset.k, v = it.v[k];
         const bad = inp.value === '' || (k === 'sleep' && it.v.sleepBad) || (/Pct$/.test(k) && (!Number.isInteger(v) || v < 0 || v > 100));
         inp.classList.toggle('bad', bad);
@@ -460,7 +427,9 @@ function viewBulk(root) {
     });
     const rest = items.filter(it => !it.saved);
     const n = rest.filter(it => it.include).length, need = rest.filter(it => it.include && it.warnings.length).length;
-    $('#saveSum', root).textContent = `${rest.length}件中 ${n}件を保存します${need ? `(うち要確認 ${need}件)` : ''}`;
+    $('#saveSum', root).textContent = rest.length === 1 ? (n ? (need ? '要確認の項目があります。確かめてから保存してください' : '内容を確認して保存してください') : '保存のチェックが外れています')
+      : `${rest.length}件中 ${n}件を保存します${need ? `(うち要確認 ${need}件)` : ''}`;
+    $('#saveAll', root).textContent = rest.length === 1 ? '保存する' : 'チェックした記録をまとめて保存';
     $('#saveAll', root).disabled = n === 0;
   }
 
@@ -488,7 +457,7 @@ function viewBulk(root) {
       $(`.bulk-item[data-i="${items.length - 1}"] .dbg-slot`, root).append(debugDetails(res));
     }
     bar.style.width = '100%';
-    txt.textContent = `${files.length}枚の読み取りが終わりました。黄色い枠は要確認です。`;
+    txt.textContent = `${files.length}枚の読み取りが終わりました。${items.some(it => it.warnings.length) ? '黄色い枠は要確認です。' : ''}`;
     $('#saveBar', root).classList.remove('hidden');
     refresh();
   };
@@ -498,6 +467,7 @@ function viewBulk(root) {
     const it = items[Number(box.dataset.i)], k = el.dataset.k;
     if (k !== 'include') it.saveError = ''; // 直したら前回の保存失敗の表示を消す
     if (k === 'include') it.include = el.checked;
+    else if (k === 'excluded') it.v.excluded = el.checked;
     else if (k === 'sleep') {
       // H:MM 以外の形は空扱いにせず「要確認」にする
       const t = el.value.trim(), m = t.match(/^(\d{1,2}):(\d{2})$/);
@@ -516,7 +486,7 @@ function viewBulk(root) {
     const targets = items.filter(it => it.include && !it.saved);
     const need = targets.filter(it => it.warnings.length);
     if (need.length && !(await ask(`要確認の記録が${need.length}件あります。そのまま保存しますか?(日付・割合などが不正なものは保存されず、一覧に残ります)`, { ok: '保存する' }))) return;
-    let saved = 0, failed = 0, dup = 0;
+    let saved = 0, failed = 0, dup = 0, lastDate = '';
     for (const it of targets) {
       it.saveError = '';
       try {
@@ -525,11 +495,11 @@ function viewBulk(root) {
         if (Store.findDuplicate({ ...v, id: null })) { it.saveError = '同じ日付・就寝時刻の記録がすでにあるため保存しませんでした'; it.include = false; dup++; continue; }
         if (v.sleepBad) throw new Error('睡眠時間の形が正しくありません');
         const rec = { id: Store.newId(), date: v.date, bedTime: v.bedTime, wakeTime: v.wakeTime, sleepMin: v.sleepMin,
-          utoPct: v.utoPct, suyaPct: v.suyaPct, gusPct: v.gusPct, type: v.type, autoField: '', memo: '', source: 'ocr' };
+          utoPct: v.utoPct, suyaPct: v.suyaPct, gusPct: v.gusPct, type: v.type, autoField: '', memo: '', excluded: !!v.excluded, source: 'ocr' };
         const o = it.ocr;
         if (!o.error && (v.date !== o.date || v.utoPct !== o.rate[0] || v.suyaPct !== o.rate[1] || v.gusPct !== o.rate[2] || v.sleepMin !== o.sleepMin || v.type !== (o.type || '') || v.bedTime !== (o.bedTime || '') || v.wakeTime !== (o.wakeTime || ''))) rec.source = 'ocr_edited';
         Store.upsertRecord(rec); // 日付・時刻・割合が不正ならここで例外になる
-        it.saved = true; it.include = false; saved++;
+        it.saved = true; it.include = false; saved++; lastDate = v.date;
       } catch (err) {
         it.saveError = '保存できませんでした(日付・時刻・割合の合計100・睡眠時間を確認してください)';
         failed++;
@@ -538,7 +508,7 @@ function viewBulk(root) {
     // 結果は必ず知らせる
     const left = failed + dup;
     toast(`${saved}件保存しました` + (left ? `。${left}件は保存せず一覧に残しました` : ''));
-    if (!left) { location.hash = '#calendar'; return; }
+    if (!left) { location.hash = saved === 1 ? `#calendar?d=${lastDate}` : '#calendar'; return; }
     $$('.bulk-item', root).forEach(el => { const it = items[Number(el.dataset.i)]; $('[data-k="include"]', el).checked = it.include; });
     refresh();
     $('#saveSum', root).textContent = `${saved}件を保存しました。残りの${items.filter(it => !it.saved).length}件は要確認です。直してからもう一度保存できます。`;
@@ -1046,8 +1016,8 @@ function viewAbout(root) {
   <section class="card">
     <h2>使い方</h2>
     <ol class="small" style="margin:0;padding-left:1.2em">
-      <li>はじめに、過去分のスクショを<a href="#bulk">一括取り込み</a>で入れると、初日から平均が出ます。</li>
-      <li>毎朝、スクショを<a href="#input">入力</a>で読み取って保存します。手入力もできます。</li>
+      <li>はじめに、過去分のスクショを<a href="#input">入力</a>でまとめて選んで入れると、初日から平均が出ます。</li>
+      <li>毎朝、スクショを<a href="#input">入力</a>で読み取って保存します(1枚でも同じ画面)。手入力もできます。</li>
       <li><a href="#targets">狙い設定</a>で週ごとの狙いを決めると、ホームに今夜の過ごし方が出ます。</li>
     </ol>
   </section>
@@ -1060,7 +1030,6 @@ function viewAbout(root) {
 
 function viewMenu(root) {
   root.innerHTML = `<section class="card list menu">
-    <a href="#bulk"><span>一括取り込み<small>スクショを複数枚まとめて読み取る</small></span>›</a>
     <a href="#targets"><span>狙い設定<small>週ごと・日ごとの狙い</small></span>›</a>
     <a href="#stats"><span>統計<small>平均・重み付き平均・標準偏差</small></span>›</a>
     <a href="#events"><span>イベント<small>公式イベントの確認・手で追加・修正</small></span>›</a>
@@ -1178,7 +1147,7 @@ function viewEvents(root) {
   return () => root.removeEventListener('click', onClick);
 }
 
-const VIEWS = { home: viewHome, input: viewInput, bulk: viewBulk, calendar: viewCalendar, targets: viewTargets, stats: viewStats, data: viewData, about: viewAbout, menu: viewMenu, events: viewEvents };
+const VIEWS = { home: viewHome, input: viewInput, bulk: viewInput, calendar: viewCalendar, targets: viewTargets, stats: viewStats, data: viewData, about: viewAbout, menu: viewMenu, events: viewEvents };
 
 Store.load();
 applyTheme();
