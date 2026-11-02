@@ -139,7 +139,7 @@ th { color: var(--muted); font-size: .78rem; font-weight: 700; }
 .seg button { flex: 1; appearance: none; border: 0; background: transparent; color: var(--accent); font: inherit; font-weight: 700; min-height: 40px; cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 .trend-seg button { font-size: .85rem; line-height: 1.2; padding: 4px 2px; }
-/* 「自分の傾向」から除外した記録の印 */
+/* 「自分の傾向」の集計外にした記録の印 */
 .cal-days button.day .exm { font-size: .55rem; line-height: 1.2; color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 2px; }
 .exm-tag { font-size: .7rem; font-weight: 700; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .trend-seg button small { display: block; font-size: .68rem; font-weight: 400; }

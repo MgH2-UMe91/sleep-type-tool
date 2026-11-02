@@ -305,7 +305,8 @@ function viewInput(root, id, q) {
     ${pctFields()}
     <label class="f">表示タイプ(ゲームの表示)<select name="type">${typeOptions(r.type)}</select></label>
     <label class="f">メモ(任意)<input type="text" name="memo" value="${esc(r.memo)}" maxlength="200"></label>
-    <label class="check"><input type="checkbox" name="excluded" ${r.excluded ? 'checked' : ''}>「自分の傾向」から除外する(嘘寝など、実際の睡眠ではない記録)</label>
+    <label class="check"><input type="checkbox" name="excluded" ${r.excluded ? 'checked' : ''}>傾向の集計に含めない(計測ミス・放置など)</label>
+    <p class="small muted" style="margin-top:-4px">「自分の傾向」の100回・全期間から外します。直近30回(ゲームの平均)には含まれます。</p>
     <p id="formMsg" class="msg"></p>
     <button class="btn block" type="submit">${editing ? '更新する' : '保存する'}</button>
     ${editing ? '<button class="btn ghost block" type="button" id="del">この記録を削除</button>' : ''}
@@ -423,7 +424,8 @@ function mountShots(root) {
       </div>
       <div class="grid3">${KINDS.map(k => `<label class="f"><span class="pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span><input type="number" inputmode="numeric" data-k="${PCT_KEY[k]}" value="${v[PCT_KEY[k]] ?? ''}"></label>`).join('')}</div>
       <label class="f">表示タイプ<select data-k="type">${typeOptions(v.type)}</select></label>
-      <label class="check"><input type="checkbox" data-k="excluded" ${v.excluded ? 'checked' : ''}>「自分の傾向」から除外する(嘘寝など)</label>
+      <label class="check"><input type="checkbox" data-k="excluded" ${v.excluded ? 'checked' : ''}>傾向の集計に含めない(計測ミス・放置など)</label>
+      <p class="small muted" style="margin-top:-4px">「自分の傾向」の100回・全期間から外します。直近30回(ゲームの平均)には含まれます。</p>
       ${it.ocr.bar ? `<p class="small muted">色帯の比率:${it.ocr.bar.join(' / ')}</p>` : ''}
       <div class="dbg-slot"></div>
     </div>`;
@@ -439,7 +441,7 @@ function mountShots(root) {
       $('.w', el).textContent = it.warnings.length ? '要確認:' + it.warnings.join(' / ') : '';
       // 読めなかった(空の)欄・不正な欄を強調
       $$('[data-k]', el).forEach(inp => {
-        if (inp.type === 'checkbox') return; // 保存する・除外のチェック
+        if (inp.type === 'checkbox') return; // 保存する・集計に含めないのチェック
         const k = inp.dataset.k, v = it.v[k];
         const bad = inp.value === '' || (k === 'sleep' && it.v.sleepBad) || (/Pct$/.test(k) && (!Number.isInteger(v) || v < 0 || v > 100));
         inp.classList.toggle('bad', bad);
@@ -607,7 +609,7 @@ function viewCalendar(root, id, q) {
           ${mn ? `<span class="moon ${mn.phase} ${mn.exact ? 'exact' : ''}" aria-hidden="true">${MOON_ICON[mn.phase]}</span>` : ''}
           ${rs.length ? `<span class="mark" aria-hidden="true">${rs.map(() => '<i></i>').join('')}</span>` : ''}
           <span class="d">${Number(day.slice(8))}</span>
-          ${rs.some(r => r.excluded) ? '<span class="exm">除外</span>' : ''}
+          ${rs.some(r => r.excluded) ? '<span class="exm">集計外</span>' : ''}
           ${rs.map(r => `<span class="tl ${r.type ? 't-' + r.type : 't-empty'}">${SHORT[r.type]}</span>`).join('')}
           ${dt ? `<span class="tg">狙${dt.target === 'none' ? 'なし' : SHORT[dt.target]}</span>` : ''}
         </button>`;
@@ -758,14 +760,14 @@ function viewCalendar(root, id, q) {
   sheet.addEventListener('close', clearDay); // Esc キーで閉じたとき
   sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); }); // 外側(背景)をタップで閉じる
   $('#sheetClose', root).onclick = closeSheet;
-  // 日の詳細の「傾向から除外」切り替え。マスの「除外」の印も付け直す
+  // 日の詳細の「傾向の集計に含めない」切り替え。マスの「集計外」の印も付け直す
   $('#daySheetBody', root).addEventListener('click', e => {
     const b = e.target.closest('button[data-ex]'); if (!b) return;
     const day = sheet.dataset.day, rs = byDate[day] || [], r = rs.find(x => x.id === b.dataset.ex); if (!r) return;
     Store.setExcluded(r.id, !r.excluded);
-    toast(r.excluded ? '傾向から除外しました' : '除外を外しました');
+    toast(r.excluded ? '集計外にしました' : '集計外を解除しました');
     const cell = $(`button.day[data-d="${day}"]`, list), has = rs.some(x => x.excluded), m = cell && $('.exm', cell);
-    if (cell && has && !m) $('.d', cell).insertAdjacentHTML('afterend', '<span class="exm">除外</span>');
+    if (cell && has && !m) $('.d', cell).insertAdjacentHTML('afterend', '<span class="exm">集計外</span>');
     if (m && !has) m.remove();
     $('#daySheetBody', root).innerHTML = calDetailHtml(day, rs);
   });
@@ -797,7 +799,7 @@ function calDetailHtml(d, rs) {
   const items = rs.map(r => {
     const est = Calc.estimateType(r, 'count');
     return `<div class="stack">
-      <div class="row">${rs.length > 1 ? `<span class="ref">${rs.indexOf(r) + 1}件目</span>` : ''}${tchip(r.type)}${r.excluded ? '<span class="exm-tag">除外中</span>' : ''}<span class="small muted">${r.bedTime || '--:--'}〜${r.wakeTime || '--:--'}</span>
+      <div class="row">${rs.length > 1 ? `<span class="ref">${rs.indexOf(r) + 1}件目</span>` : ''}${tchip(r.type)}${r.excluded ? '<span class="exm-tag">集計外</span>' : ''}<span class="small muted">${r.bedTime || '--:--'}〜${r.wakeTime || '--:--'}</span>
         <span class="small">${r.sleepMin != null ? minToHm(r.sleepMin) : ''}</span><a class="btn ghost small" href="#input/${esc(r.id)}" style="margin-left:auto">直す</a></div>
       <div class="avgtbl">
         <span></span>${KINDS.map(k => `<span class="h pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span>`).join('')}
@@ -808,8 +810,8 @@ function calDetailHtml(d, rs) {
       ${est ? `<p class="small">推定タイプ:${tchip(est.type)} <span class="guess">推定</span> <span class="muted">平均より一番多く出たもの。差が${NEAR_AVG_PT}ポイント未満なら「とくちょうなし」(しきい値は仮)</span></p>` : '<p class="small muted">これより前の記録がないため、推定タイプは出せません。</p>'}
       ${r.memo ? `<p class="small">メモ:${esc(r.memo)}</p>` : ''}
       <p class="small muted">入力元:${{ manual: '手入力', ocr: 'スクショ', ocr_edited: 'スクショ(修正あり)' }[r.source]}</p>
-      <div class="row"><button type="button" class="btn ghost small" data-ex="${esc(r.id)}">${r.excluded ? '「自分の傾向」の除外を外す' : '「自分の傾向」から除外する'}</button>
-        <span class="small muted">嘘寝など。直近30回の平均には影響しません</span></div>
+      <div class="row"><button type="button" class="btn ghost small" data-ex="${esc(r.id)}">${r.excluded ? '集計外を解除' : '傾向の集計に含めない'}</button>
+        <span class="small muted">計測ミス・放置など。「自分の傾向」の100回・全期間から外します。直近30回(ゲームの平均)には含まれます。</span></div>
     </div>`;
   }).join('');
   return `<div class="stack">
@@ -910,7 +912,7 @@ function viewStats(root) {
         ${Object.keys(TREND_SEG).map(p => `<button data-p="${p}" aria-pressed="${period === p}">${TREND_SEG[p]}</button>`).join('')}
       </div>
       <div class="row"><b>${TREND_LABEL[period]}</b><span class="small muted">${tr.typed}件で算出</span>${tr.typed ? `<span class="ref">${tr.level}</span>` : ''}
-        ${tr.excludedCount ? `<span class="exm-tag">除外 ${tr.excludedCount}件${tr.excludeApplied ? '' : '(この期間は適用しない)'}</span>` : ''}</div>
+        ${tr.excludedCount ? `<span class="exm-tag">集計外 ${tr.excludedCount}件${tr.excludeApplied ? '' : '(この期間は適用しない)'}</span>` : ''}</div>
       ${tr.n ? `
       <h3 class="small-h">タイプの出やすさ(何%の夜に出たか)</h3>
       <div class="tbl-wrap"><table>
@@ -926,18 +928,18 @@ function viewStats(root) {
       <p class="small">出やすさは、あなたの記録から数えた実績に基づく目安です(ゲームの内部の判定は公開されていないため、推測を含みます)。</p>
       <ul class="small muted" style="margin:0;padding-left:1.2em">
         <li>直近30回:ゲームの平均に近い基準(推定)。全期間:記録全体から見た、普段のあなたの姿。</li>
-        <li>件数の目安:30回未満=参考値、30〜99回=目安、100回以上=安定。数えるのは実際に算出に使った件数(除外した記録とタイプが未記録の記録を除く)です。</li>
-        <li>「傾向から除外」した記録(嘘寝など)は、直近100回・全期間では数えません。直近30回(ゲームの平均)には除外を適用しません。ゲーム側ではこうした記録も平均に入るため、そのままのほうがゲームの判定に近くなります。</li>
+        <li>件数の目安:30回未満=参考値、30〜99回=目安、100回以上=安定。数えるのは実際に算出に使った件数(集計外の記録とタイプが未記録の記録を除く)です。</li>
+        <li>「傾向の集計に含めない」にした記録(計測ミス・放置など)は、直近100回・全期間では数えません。直近30回(ゲームの平均)には含めます。ゲーム側ではこうした記録も平均に入るため、そのほうがゲームの判定に近くなります。</li>
         <li>狙うタイプが全期間で${USUAL_RATE_PCT}%以上の夜に出ていれば、ホームで「普段どおりで十分です」と案内します(算出に使った記録が${TREND_MIN_N}件以上のとき)。</li>
       </ul>
     </section>
     ${(() => {
       const sus = Calc.suspicious(), exd = Store.records().filter(r => r.excluded).reverse();
       const line = (r, act) => `<div class="row"><span class="small">${fmtDate(r.date)} ${r.bedTime || ''}</span>${tchip(r.type)}<span class="small muted">${r.sleepMin != null ? minToHm(r.sleepMin) : '—'} · ${r.utoPct}/${r.suyaPct}/${r.gusPct}</span>
-        <button type="button" class="btn ghost small" data-${act}="${esc(r.id)}" style="margin-left:auto">${act === 'ex' ? '除外する' : '戻す'}</button></div>`;
+        <button type="button" class="btn ghost small" data-${act}="${esc(r.id)}" style="margin-left:auto">${act === 'ex' ? '集計外にする' : '集計外を解除'}</button></div>`;
       return (sus.length ? `<section class="card"><h2 class="small-h">怪しい記録(睡眠${SUSPECT_SLEEP_MIN / 60}時間未満なのにぐっすり)</h2>
-        <p class="small muted">実際の睡眠でなければ「除外する」で「自分の傾向」から外せます。</p><div class="stack">${sus.map(r => line(r, 'ex')).join('')}</div></section>` : '')
-        + (exd.length ? `<section class="card"><h2 class="small-h">除外中の記録(${exd.length}件)</h2><div class="stack">${exd.map(r => line(r, 'unex')).join('')}</div></section>` : '');
+        <p class="small muted">計測ミスや放置などなら「集計外にする」で、「自分の傾向」の100回・全期間から外せます。</p><div class="stack">${sus.map(r => line(r, 'ex')).join('')}</div></section>` : '')
+        + (exd.length ? `<section class="card"><h2 class="small-h">集計外の記録(${exd.length}件)</h2><div class="stack">${exd.map(r => line(r, 'unex')).join('')}</div></section>` : '');
     })()}
     <h2 class="small-h">平均(判定の基準)</h2>
     <div class="seg" role="group" aria-label="集計範囲">
@@ -952,7 +954,7 @@ function viewStats(root) {
           <td class="num">${fmtPct(st[k].mean)}%</td><td class="num">${fmtPct(st[k].wMean)}%</td><td class="num">${fmtPct(st[k].sd)}</td></tr>`).join('')}
       </table></div>` : '<p class="small muted">記録がありません。</p>'}
       <ul class="small muted" style="margin:0;padding-left:1.2em">
-        <li>重み付き平均:睡眠時間で重み付け(Σ割合×睡眠分 ÷ Σ睡眠分)。分割睡眠の短い方の影響が小さくなります。睡眠時間のない記録は除外。</li>
+        <li>重み付き平均:睡眠時間で重み付け(Σ割合×睡眠分 ÷ Σ睡眠分)。分割睡眠の短い方の影響が小さくなります。睡眠時間のない記録は計算に入れません。</li>
         <li>標準偏差:母標準偏差(件数で割る)。</li>
         <li>直近30回:新しい順に30件。ホーム・カレンダー・推定タイプ・今夜の狙いはすべてこの平均を使います。</li>
         <li>参考:直近30日:基準日を含む過去30日の全記録(検証用。分割睡眠の日は2件とも入ります)。</li>
@@ -960,8 +962,8 @@ function viewStats(root) {
     </section>`;
     $$('.seg button[data-r]', root).forEach(b => b.onclick = () => { range = b.dataset.r; render(); });
     $$('.seg button[data-p]', root).forEach(b => b.onclick = () => { period = b.dataset.p; render(); });
-    $$('button[data-ex]', root).forEach(b => b.onclick = () => { Store.setExcluded(b.dataset.ex, true); toast('傾向から除外しました'); render(); });
-    $$('button[data-unex]', root).forEach(b => b.onclick = () => { Store.setExcluded(b.dataset.unex, false); toast('除外を外しました'); render(); });
+    $$('button[data-ex]', root).forEach(b => b.onclick = () => { Store.setExcluded(b.dataset.ex, true); toast('集計外にしました'); render(); });
+    $$('button[data-unex]', root).forEach(b => b.onclick = () => { Store.setExcluded(b.dataset.unex, false); toast('集計外を解除しました'); render(); });
   }
   render();
 }
@@ -982,7 +984,7 @@ function viewData(root) {
     <h2>読み込み(復元)</h2>
     <input type="file" id="imp" accept=".json,.csv,application/json,text/csv">
     <div class="stack">
-      <label class="check"><input type="radio" name="mode" value="append" checked>追加(同じ記録は除外)</label>
+      <label class="check"><input type="radio" name="mode" value="append" checked>追加(同じ記録は読み込まない)</label>
       <label class="check"><input type="radio" name="mode" value="replace">上書き(今の記録を消して置き換え)</label>
     </div>
     <button class="btn" id="doImp" disabled>読み込む</button>
@@ -1014,7 +1016,7 @@ function viewData(root) {
     try {
       const r = Store.importText(await file.text(), file.name, mode);
       m.className = 'msg ok';
-      m.textContent = `${r.added}件を読み込みました` + (r.skipped ? `(重複${r.skipped}件は除外)` : '') + (r.invalid ? `。形式が不正な${r.invalid}件は読み込めませんでした(日付・時刻・割合の合計100・睡眠時間を確認してください)` : '');
+      m.textContent = `${r.added}件を読み込みました` + (r.skipped ? `(重複${r.skipped}件は読み込みませんでした)` : '') + (r.invalid ? `。形式が不正な${r.invalid}件は読み込めませんでした(日付・時刻・割合の合計100・睡眠時間を確認してください)` : '');
       $('#recCount', root).textContent = Store.get().records.length;
       applyTheme();
     } catch (e) { m.className = 'msg err'; m.textContent = '読み込めませんでした:' + e.message; }

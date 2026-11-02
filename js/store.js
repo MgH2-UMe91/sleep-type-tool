@@ -9,7 +9,7 @@ const STORAGE_KEY = 'sleep-type-tool';
 // 分割睡眠で同じ日付に複数件ありうる。同じ記録かどうかは 日付+就寝時刻 で判定する
 const RECORD_COLUMNS = ['id', 'date', 'bedTime', 'wakeTime', 'sleepMin', 'utoPct', 'suyaPct', 'gusPct',
   'autoField', 'type', 'source', 'memo', 'createdAt', 'updatedAt', 'excluded'];
-// excluded:「自分の傾向」の集計から外す(嘘寝など)。任意の項目で、無い記録(古いデータ・古いCSV)は false
+// excluded:「自分の傾向」の集計に含めない(計測ミス・放置など。画面の表記は「集計外」)。任意の項目で、無い記録(古いデータ・古いCSV)は false
 
 const DEFAULT_SETTINGS = {
   backupRemindDays: 30,     // 最後の書き出しから何日でお知らせするか

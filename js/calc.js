@@ -66,8 +66,8 @@ const Calc = (() => {
   }
 
   // 基準日(含む)までの記録の傾向。period: 'r30' | 'r100' | 'all'
-  // 「傾向から除外」の記録は、直近100回・全期間では数えない(直近100回は除外したあとの100件)。
-  // 直近30回はゲームの平均に近づけるため、除外しない(ゲーム側ではこうした記録も平均に入る)
+  // 「傾向の集計に含めない」記録(集計外)は、直近100回・全期間では数えない(直近100回は集計外を除いたあとの100件)。
+  // 直近30回はゲームの平均に近づけるため、集計外も含める(ゲーム側ではこうした記録も平均に入る)
   function tendencyAt(refDate, period = 'all') {
     const all = Store.records().filter(r => r.date <= refDate);
     const applies = period !== 'r30';
@@ -76,7 +76,7 @@ const Calc = (() => {
     return { ...tendency(n ? rs.slice(-n) : rs), excludedCount: all.filter(r => r.excluded).length, excludeApplied: applies };
   }
 
-  // 怪しい記録:睡眠時間が SUSPECT_SLEEP_MIN 分未満なのに、ぐっすり(表示タイプ、または割合の半分以上)。除外済みは除く。新しい順
+  // 怪しい記録:睡眠時間が SUSPECT_SLEEP_MIN 分未満なのに、ぐっすり(表示タイプ、または割合の半分以上)。集計外にしたものは除く。新しい順
   const suspicious = () => Store.records()
     .filter(r => !r.excluded && r.sleepMin != null && r.sleepMin < SUSPECT_SLEEP_MIN && (r.type === 'gus' || r.gusPct >= 50))
     .reverse();
