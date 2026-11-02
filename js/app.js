@@ -1041,6 +1041,11 @@ function viewAbout(root) {
     <p>睡眠計測ゲームの睡眠結果(うとうと・すやすや・ぐっすりの割合)を自分で記録し、平均を見ながら今夜狙うタイプを決めるための<b>非公式ファンツール</b>です。ゲームの開発・運営会社とは関係ありません。ゲームの画像・ロゴは使っていません。</p>
     <p class="small muted">制作者: ゆめくい(X: <a href="https://x.com/youmay91" target="_blank" rel="noopener noreferrer">@youmay91</a>)</p>
   </section>
+  <section class="card story">
+    <h2 class="small-h">作った理由</h2>
+    <p class="small">ポケモンスリープのハロウィンイベントで、推しのムウマが【闇鍋】の週だったのに、うとうとを引けず、なかなか会えませんでした。私はこれを勝手に「ハロウィンの悪夢」と呼んでいます。(イベント自体はとても楽しかったです。運営のみなさん、ありがとうございました!)</p>
+    <p class="small">【闇鍋】の週でも、睡眠タイプで出会いやすさは大きく変わります。「狙う週に、狙うタイプを出したい」と思い、睡眠タイプを記録して管理するために、このツールを作りました。</p>
+  </section>
   <section class="card">
     <h2>利用について</h2>
     <ul class="small" style="margin:0;padding-left:1.2em">

@@ -98,6 +98,9 @@ input.bad, select.bad { border-color: var(--err); background: var(--err-soft); }
 .msg.err { background: var(--err-soft); color: var(--err); }
 .msg.warn { background: var(--warn-soft); color: var(--warn); }
 .msg.ok { background: var(--auto-bg); color: var(--auto-ink); }
+/* 「このアプリについて」の「作った理由」(引用風、小さめ) */
+.card.story { border-left: 4px solid var(--accent); }
+.card.story p { margin: 0; line-height: 1.7; }
 /* ブラウザ版の案内(目立ちすぎない、✕で閉じる) */
 .note-bar { display: flex; align-items: flex-start; gap: 4px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 4px 6px 10px; color: var(--muted); }
 .note-bar p { margin: 4px 0; flex: 1; }
