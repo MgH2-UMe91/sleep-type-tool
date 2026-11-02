@@ -151,7 +151,7 @@ function viewHome(root) {
   <section class="card">
     <h2>直近30回の平均</h2>
     ${avgBlock(a30n, '直近30回')}
-    <p class="small muted"><a href="#stats">くわしい統計</a></p>
+    <p class="small muted"><a href="#stats">くわしい統計・自分の傾向</a></p>
   </section>
   ${last ? `<section class="card"><h2>最新の記録</h2>
     <div class="row">${tchip(last.type)}<span>${fmtDate(last.date)}</span>
@@ -871,14 +871,44 @@ function viewTargets(root) {
 }
 
 // ================= 統計 =================
+const TREND_LABEL = { r30: '直近30回(ゲームの平均)', r100: '直近100回', all: '全期間(本来の姿)' };
+const TREND_SEG = { r30: '直近30回<small>ゲームの平均</small>', r100: '直近100回', all: '全期間<small>本来の姿</small>' };
+
 function viewStats(root) {
   // 平均の基準は直近30回。直近30日は将来の検証用の参考表示(切り替えは保存しない)
-  let range = 'count';
+  let range = 'count', period = 'all';
   function render() {
     const today = tonightYmd();
     const st = Calc.averageAt(today, range);
     const label = range === 'days' ? '参考:直近30日' : '直近30回';
+    const tr = Calc.tendencyAt(today, period);
     root.innerHTML = `
+    <section class="card">
+      <h2>自分の傾向</h2>
+      <div class="seg trend-seg" role="group" aria-label="傾向の期間">
+        ${Object.keys(TREND_SEG).map(p => `<button data-p="${p}" aria-pressed="${period === p}">${TREND_SEG[p]}</button>`).join('')}
+      </div>
+      <div class="row"><b>${TREND_LABEL[period]}</b><span class="small muted">${tr.n}件</span>${tr.n ? `<span class="ref">${tr.level}</span>` : ''}</div>
+      ${tr.n ? `
+      <h3 class="small-h">タイプの出やすさ(何%の夜に出たか)</h3>
+      <div class="tbl-wrap"><table>
+        <tr><th></th><th>夜の割合</th><th>回数</th></tr>
+        ${['uto', 'suya', 'gus', 'none'].map(k => `<tr><td>${tchip(k)}</td><td class="num">${tr.typed ? tr.rate[k].toFixed(1) + '%' : '—'}</td><td class="num">${tr.counts[k]}/${tr.typed}</td></tr>`).join('')}
+      </table></div>
+      ${tr.untyped ? `<p class="small muted">タイプが未記録の${tr.untyped}件は、出やすさの数から除いています。</p>` : ''}
+      <h3 class="small-h">割合の平均とばらつき</h3>
+      <div class="tbl-wrap"><table>
+        <tr><th></th><th>平均</th><th>標準偏差</th></tr>
+        ${KINDS.map(k => `<tr><td><span class="pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span></td><td class="num">${fmtPct(tr.stats[k].mean)}%</td><td class="num">${fmtPct(tr.stats[k].sd)}</td></tr>`).join('')}
+      </table></div>` : '<p class="small muted">記録がありません。</p>'}
+      <p class="small">出やすさは、あなたの記録から数えた実績に基づく目安です(ゲームの内部の判定は公開されていないため、推測を含みます)。</p>
+      <ul class="small muted" style="margin:0;padding-left:1.2em">
+        <li>直近30回:ゲームの平均に近い基準(推定)。全期間:記録全体から見た、普段のあなたの姿。</li>
+        <li>件数の目安:30回未満=参考値、30〜99回=目安、100回以上=安定。</li>
+        <li>狙うタイプが全期間で${USUAL_RATE_PCT}%以上の夜に出ていれば、ホームで「普段どおりで十分です」と案内します(記録${TREND_MIN_N}件以上のとき)。</li>
+      </ul>
+    </section>
+    <h2 class="small-h">平均(判定の基準)</h2>
     <div class="seg" role="group" aria-label="集計範囲">
       <button data-r="count" aria-pressed="${range === 'count'}">直近30回</button>
       <button data-r="days" aria-pressed="${range === 'days'}">参考:直近30日</button>
@@ -897,7 +927,8 @@ function viewStats(root) {
         <li>参考:直近30日:基準日を含む過去30日の全記録(検証用。分割睡眠の日は2件とも入ります)。</li>
       </ul>
     </section>`;
-    $$('.seg button', root).forEach(b => b.onclick = () => { range = b.dataset.r; render(); });
+    $$('.seg button[data-r]', root).forEach(b => b.onclick = () => { range = b.dataset.r; render(); });
+    $$('.seg button[data-p]', root).forEach(b => b.onclick = () => { period = b.dataset.p; render(); });
   }
   render();
 }

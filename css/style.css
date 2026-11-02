@@ -134,6 +134,8 @@ th { color: var(--muted); font-size: .78rem; font-weight: 700; }
 .seg { display: flex; border: 1px solid var(--accent); border-radius: 10px; overflow: hidden; }
 .seg button { flex: 1; appearance: none; border: 0; background: transparent; color: var(--accent); font: inherit; font-weight: 700; min-height: 40px; cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.trend-seg button { font-size: .85rem; line-height: 1.2; padding: 4px 2px; }
+.trend-seg button small { display: block; font-size: .68rem; font-weight: 400; }
 
 /* カレンダー */
 .cal-month { margin-bottom: 14px; }

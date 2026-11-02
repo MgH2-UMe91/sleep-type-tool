@@ -8,6 +8,12 @@ const TARGET_LABEL = { uto: 'うとうと', suya: 'すやすや', gus: 'ぐっ�
 const RANGE_N = 30;
 // 推定タイプで「平均に近い」とみなす差(ポイント)。根拠のない仮の値
 const NEAR_AVG_PT = 5;
+// 傾向:狙うタイプが出た夜の割合(全期間)がこれ以上なら「普段どおりで十分」と案内する(%)。仮の値
+const USUAL_RATE_PCT = 40;
+// 傾向を案内に使う最低の件数(タイプのわかる記録)。これ未満では従来の案内にする。仮の値
+const TREND_MIN_N = 10;
+// 傾向の期間。件数(null = 全期間)
+const TREND_PERIODS = { r30: 30, r100: 100, all: null };
 
 const Calc = (() => {
   // 基準日(含む)までの記録から、集計対象を選ぶ
@@ -41,6 +47,28 @@ const Calc = (() => {
   }
 
   const averageAt = (refDate, range, opts) => stats(pick(Store.records(), refDate, range, opts));
+
+  // ---------- 自分の傾向 ----------
+  // 記録の件数から、数字の確からしさの目安:30回未満=参考値、30〜99回=目安、100回以上=安定
+  const reliability = n => n < 30 ? '参考値' : n < 100 ? '目安' : '安定';
+
+  // 記録の並び(古い順)から:タイプ別に何%の夜に出たか(回数も)と、3つの割合の平均・ばらつき
+  // タイプが未記録の記録は、出やすさの数からだけ除く(割合の平均には入れる)
+  function tendency(rs) {
+    const counts = { none: 0, uto: 0, suya: 0, gus: 0 };
+    for (const r of rs) if (r.type in counts) counts[r.type]++;
+    const typed = counts.none + counts.uto + counts.suya + counts.gus;
+    const rate = {};
+    for (const k in counts) rate[k] = typed ? counts[k] / typed * 100 : null;
+    return { n: rs.length, typed, untyped: rs.length - typed, counts, rate, stats: stats(rs), level: reliability(rs.length) };
+  }
+
+  // 基準日(含む)までの記録の傾向。period: 'r30' | 'r100' | 'all'
+  function tendencyAt(refDate, period = 'all') {
+    const rs = Store.records().filter(r => r.date <= refDate);
+    const n = TREND_PERIODS[period];
+    return tendency(n ? rs.slice(-n) : rs);
+  }
 
   // その夜の推定タイプ:その夜より前の平均と比べ、平均より一番多く出たもの。差が小さければ「とくちょうなし」
   function estimateType(rec, range = 'count') {
@@ -112,10 +140,18 @@ const Calc = (() => {
           title: '普段どおりでOK',
           reason: `狙いまで${left}日あり、平均に使う直近30回(いまの記録の頻度で約${win}日ぶん)より先なので、まだ影響しない期間です。あと${left - win}日ほどしたら意識を始めましょう。` };
       } else {
+        // 全期間の記録で、狙うタイプが普段から出やすいなら、反対側を狙わず普段どおりで十分(推定)
+        const tr = tendencyAt(date, 'all');
+        if (tr.typed >= TREND_MIN_N && tr.rate[k] >= USUAL_RATE_PCT) {
+          plan = { kind: 'usual', type: null, aim: k, next,
+            title: '普段どおりで十分です',
+            reason: `あなたの記録では、${TYPE_LABEL[k]}が出た夜は全期間で${tr.rate[k].toFixed(0)}%(${tr.counts[k]}/${tr.typed}回・${tr.level})。普段から出やすいので、前の週に反対側を狙わなくても、狙う週に出る見込みがあります(記録から数えた目安・推定)。` };
+        } else {
         const c = counterOf(k, avg);
         plan = { kind: 'prep', type: c.k, aim: k, next,
           title: `${TYPE_LABEL[c.k]}を意識して寝る`,
           reason: `${TYPE_LABEL[k]}の直近30回の平均 ${pct(k)} → 下げたい。狙う週の前に${TYPE_LABEL[k]}を少なめにしておくと、狙う週に「平均より多い」になりやすい(推定)。` + (c.why ? `${TYPE_LABEL[c.k]}を選んだ理由:${c.why}。` : '') };
+        }
       }
     }
     // 次の(別の)狙いを補足で一言
@@ -144,5 +180,5 @@ const Calc = (() => {
     return ((hmToMin(wake) - hmToMin(bed)) % 1440 + 1440) % 1440;
   }
 
-  return { pick, stats, averageAt, estimateType, planFor, windowDays, missingDays, spanMin, fmtMd };
+  return { pick, stats, averageAt, reliability, tendency, tendencyAt, estimateType, planFor, windowDays, missingDays, spanMin, fmtMd };
 })();
