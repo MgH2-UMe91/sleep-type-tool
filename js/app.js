@@ -968,6 +968,7 @@ function viewAbout(root) {
     <h2>${APP_NAME}</h2>
     <p class="small muted">対象:${FOR_GAME}(非公式ファンツール)</p>
     <p>睡眠計測ゲームの睡眠結果(うとうと・すやすや・ぐっすりの割合)を自分で記録し、平均を見ながら今夜狙うタイプを決めるための<b>非公式ファンツール</b>です。ゲームの開発・運営会社とは関係ありません。ゲームの画像・ロゴは使っていません。</p>
+    <p class="small muted">制作者: ゆめくい(X: <a href="https://x.com/youmay91" target="_blank" rel="noopener noreferrer">@youmay91</a>)</p>
   </section>
   <section class="card">
     <h2>データの扱い</h2>
