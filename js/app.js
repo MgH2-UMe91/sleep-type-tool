@@ -569,7 +569,13 @@ function viewCalendar(root, id, q) {
     // 同じ日数なら、その週の中で早い曜日から始まる(帯を右へ伸ばせる)ほう。日曜1日だけの側は選ばれにくい
     const startCol = k => { const [ws, ym] = k.split('|'); let x = e.from > ws ? e.from : ws; if (ymOf(x) < ym) x = ym + '-01'; return daysBetween(ws, x); };
     slotOf[e.id] = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || startCol(a) - startCol(b) || (a < b ? -1 : 1))[0];
+    // NMD・GSD のイベントは、週をまたぐときも最終日のある(後の)週に出す
+    if (Events.isMoonDay(e) && e.to) slotOf[e.id] = mondayOf(e.to) + '|' + ymOf(e.to);
   }
+  // 公式の NMD・GSD イベントと重なる月相の期間は、●NMD/○GSD の札を出さない(回数つきの公式の表記だけにする)
+  const moonKindOf = e => /ニュームーンデー/.test(e.title) ? 'new' : /グッドスリープデー/.test(e.title) ? 'full' : null;
+  const officialMoon = Events.list().filter(e => e.from && e.to && moonKindOf(e));
+  const hasOfficial = sp => officialMoon.some(e => moonKindOf(e) === sp.phase && e.from <= sp.to && e.to >= sp.from);
   // 表示する範囲:過去は記録のある最初の月まで、未来は狙いの設定とイベントに合わせて(最低3か月先)
   const targetDates = d.weekTargets.filter(t => KINDS.includes(t.target)).map(t => addDays(t.weekStart, 6))
     .concat(d.dayTargets.filter(t => KINDS.includes(t.target)).map(t => t.date))
@@ -628,11 +634,13 @@ function viewCalendar(root, id, q) {
         const [a, b] = clip(e.from, e.to);
         const yami = Events.isYami(e);
         const name = Events.displayTitle(e.title).replace(/^【[^】]*】\s*/, '').replace(/[「」]/g, '');
-        bars.push(`<button type="button" class="bar ev-bar ${yami ? 'free' : ''}" data-s="${col(a)}" data-e="${col(b)}"
+        bars.push(`<button type="button" class="bar ev-bar ${yami ? 'free' : ''} ${Events.isMoonDay(e) ? 'moon-ev' : ''}" data-s="${col(a)}" data-e="${col(b)}"
           data-full="${esc(Events.displayTitle(e.title))}${yami ? `(${YAMI}:${YAMI_NOTE}イベント)` : ''}" data-period="${esc(Events.periodLabel(e))}">${yami ? `<b>${YAMI}</b>` : ''}${esc(name)}</button>`);
       }
-      // GSD/NMD:その日の列の真上だけに短い札(日付の範囲は書かない)。列の位置は動かさない
+      // GSD/NMD:その日の列の真上だけに短い札(日付の範囲は書かない)。列の位置は動かさない。
+      // 週(月)をまたぐときは最終日のある後の週にだけ出す。公式のイベントがあれば出さない
       for (const sp of Moon.spansBetween(wfrom, wto)) {
+        if (sp.to < wfrom || sp.to > wto || hasOfficial(sp)) continue;
         const [a, b] = clip(sp.from, sp.to);
         bars.push(`<button type="button" class="bar moon-bar ${sp.phase}" data-s="${col(a)}" data-e="${col(b)}" data-fixed="1"
           data-full="${sp.mark}(${MOON_NAME[sp.phase]}の前後)" data-period="${esc(`${Calc.fmtMd(sp.from)}〜${Calc.fmtMd(sp.to)}(${MOON_NAME[sp.phase]} ${fmtDate(sp.center)} ${sp.time})`)}">${MOON_ICON[sp.phase]}${sp.mark}</button>`);
@@ -687,7 +695,7 @@ function viewCalendar(root, id, q) {
         }
         if (!spot) spot = [rows.length, s, Math.min(7, Math.max(e, s + need - 1))]; // 新しい段
         // 1列ぶんの幅にしかならないイベントの帯(日曜だけに切れた断片など)は描かない。日の詳細・ホーム・狙い設定には出る
-        if (spot[1] === spot[2] && el.classList.contains('ev-bar')) { el.remove(); continue; }
+        if (spot[1] === spot[2] && el.classList.contains('ev-bar') && !el.classList.contains('moon-ev')) { el.remove(); continue; }
         take(...spot);
         el.style.gridRow = String(spot[0] + 1);
         el.style.gridColumn = `${spot[1]} / ${spot[2] + 1}`;
