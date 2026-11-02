@@ -22,6 +22,8 @@ CATEGORY_PAGES = {  # 一覧の1ページ目だけを見る(1ページ10件、�
 }
 USER_AGENT = 'sleep-type-tool-event-fetcher/1.0 (+https://github.com/MgH2-UMe91/sleep-type-tool)'
 INTERVAL_SEC = 3          # リクエストの間隔
+MAX_BYTES = 3 * 1024 * 1024  # 1ページの読み込み上限(公式ページは数百KB)
+ARTICLE_PREFIX = 'https://www.pokemonsleep.net/news/'  # 記事として受け付けるURL(ほかのサイトへのリンクは取りに行かない)
 SKIP_OLDER_DAYS = 45      # これより前の掲載記事は本文を取りに行かず、確認済みにだけする
 KEEP_DAYS = 365           # 終了からこの日数を過ぎたイベントは消す
 JST = timezone(timedelta(hours=9))
@@ -38,7 +40,7 @@ def fetch(url):
     req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT, 'Accept-Language': 'ja'})
     try:
         with urllib.request.urlopen(req, timeout=30) as res:
-            return res.read().decode('utf-8', errors='replace')
+            return res.read(MAX_BYTES).decode('utf-8', errors='replace')
     finally:
         _last_request = time.monotonic()
 
@@ -53,6 +55,8 @@ def parse_list(page):
     items = []
     for m in re.finditer(r'<a class="banner_2" href="([^"]+)">(.*?)</a>', page, re.S):
         url, block = m.group(1), m.group(2)
+        if not url.startswith(ARTICLE_PREFIX):
+            continue
         aid = article_id(url)
         d = re.search(r'datetime="(\d{4})/(\d{2})/(\d{2})"', block)
         t = re.search(r'banner_2__title">\s*(.*?)\s*</p>', block, re.S)

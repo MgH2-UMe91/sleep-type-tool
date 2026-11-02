@@ -791,7 +791,7 @@ function calDetailHtml(d, rs) {
     const est = Calc.estimateType(r, 'count');
     return `<div class="stack">
       <div class="row">${rs.length > 1 ? `<span class="ref">${rs.indexOf(r) + 1}件目</span>` : ''}${tchip(r.type)}${r.excluded ? '<span class="exm-tag">除外中</span>' : ''}<span class="small muted">${r.bedTime || '--:--'}〜${r.wakeTime || '--:--'}</span>
-        <span class="small">${r.sleepMin != null ? minToHm(r.sleepMin) : ''}</span><a class="btn ghost small" href="#input/${r.id}" style="margin-left:auto">直す</a></div>
+        <span class="small">${r.sleepMin != null ? minToHm(r.sleepMin) : ''}</span><a class="btn ghost small" href="#input/${esc(r.id)}" style="margin-left:auto">直す</a></div>
       <div class="avgtbl">
         <span></span>${KINDS.map(k => `<span class="h pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span>`).join('')}
         <span class="h">この夜</span>${KINDS.map(k => `<span class="num">${r[PCT_KEY[k]]}%</span>`).join('')}
@@ -801,7 +801,7 @@ function calDetailHtml(d, rs) {
       ${est ? `<p class="small">推定タイプ:${tchip(est.type)} <span class="guess">推定</span> <span class="muted">平均より一番多く出たもの。差が${NEAR_AVG_PT}ポイント未満なら「とくちょうなし」(しきい値は仮)</span></p>` : '<p class="small muted">これより前の記録がないため、推定タイプは出せません。</p>'}
       ${r.memo ? `<p class="small">メモ:${esc(r.memo)}</p>` : ''}
       <p class="small muted">入力元:${{ manual: '手入力', ocr: 'スクショ', ocr_edited: 'スクショ(修正あり)' }[r.source]}</p>
-      <div class="row"><button type="button" class="btn ghost small" data-ex="${r.id}">${r.excluded ? '「自分の傾向」の除外を外す' : '「自分の傾向」から除外する'}</button>
+      <div class="row"><button type="button" class="btn ghost small" data-ex="${esc(r.id)}">${r.excluded ? '「自分の傾向」の除外を外す' : '「自分の傾向」から除外する'}</button>
         <span class="small muted">嘘寝など。直近30回の平均には影響しません</span></div>
     </div>`;
   }).join('');
@@ -929,7 +929,7 @@ function viewStats(root) {
     ${(() => {
       const sus = Calc.suspicious(), exd = Store.records().filter(r => r.excluded).reverse();
       const line = (r, act) => `<div class="row"><span class="small">${fmtDate(r.date)} ${r.bedTime || ''}</span>${tchip(r.type)}<span class="small muted">${r.sleepMin != null ? minToHm(r.sleepMin) : '—'} · ${r.utoPct}/${r.suyaPct}/${r.gusPct}</span>
-        <button type="button" class="btn ghost small" data-${act}="${r.id}" style="margin-left:auto">${act === 'ex' ? '除外する' : '戻す'}</button></div>`;
+        <button type="button" class="btn ghost small" data-${act}="${esc(r.id)}" style="margin-left:auto">${act === 'ex' ? '除外する' : '戻す'}</button></div>`;
       return (sus.length ? `<section class="card"><h2 class="small-h">怪しい記録(睡眠${SUSPECT_SLEEP_MIN / 60}時間未満なのにぐっすり)</h2>
         <p class="small muted">実際の睡眠でなければ「除外する」で「自分の傾向」から外せます。</p><div class="stack">${sus.map(r => line(r, 'ex')).join('')}</div></section>` : '')
         + (exd.length ? `<section class="card"><h2 class="small-h">除外中の記録(${exd.length}件)</h2><div class="stack">${exd.map(r => line(r, 'unex')).join('')}</div></section>` : '');
@@ -985,7 +985,7 @@ function viewData(root) {
   </section>
   <section class="card">
     <h2>設定</h2>
-    <label class="f">バックアップのお知らせ(最後の書き出しから何日後)<input type="number" id="remind" min="1" max="365" value="${s.backupRemindDays}"></label>
+    <label class="f">バックアップのお知らせ(最後の書き出しから何日後)<input type="number" id="remind" min="1" max="365" value="${esc(s.backupRemindDays)}"></label>
     <label class="f">表示テーマ<select id="theme">
       <option value="auto" ${s.theme === 'auto' ? 'selected' : ''}>端末に合わせる</option>
       <option value="light" ${s.theme === 'light' ? 'selected' : ''}>ライト</option>

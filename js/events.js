@@ -25,11 +25,11 @@ const Events = (() => {
 
   // 1件をそろえる。id とタイトルがなければ捨てる
   function clean(e) {
-    if (!e || !e.id || !e.title) return null;
+    if (!e || !isSafeId(e.id) || !e.title) return null;
     return {
-      id: String(e.id), title: String(e.title), category: e.category ? String(e.category) : '',
-      start: e.start || null, end: e.end || null,
-      url: /^https?:\/\//.test(e.url || '') ? e.url : '',
+      id: String(e.id), title: String(e.title).slice(0, 200), category: e.category ? String(e.category).slice(0, 40) : '',
+      start: isIsoTime(e.start) ? e.start : null, end: isIsoTime(e.end) ? e.end : null,
+      url: isHttpUrl(e.url) ? e.url : '',
       typeFree: !!e.typeFree,
       boostTypes: Array.isArray(e.boostTypes) ? e.boostTypes.filter(k => KINDS.includes(k)) : [],
     };
@@ -58,9 +58,10 @@ const Events = (() => {
       const base = byId.get(m.id);
       // 公式のものに「非表示」の印だけを付けた場合は、内容は公式のまま
       const onlyHidden = Object.keys(m).every(k => k === 'id' || k === 'hidden');
+      if (!base && (onlyHidden || !m.title)) continue; // 公式から消えたイベントの「非表示」の印などは出さない
       byId.set(m.id, { ...(base || {}), ...m, source: base ? (onlyHidden ? 'official' : 'edited') : 'manual' });
     }
-    return [...byId.values()].filter(e => all || !e.hidden).map(e => ({ ...e, from: gameDate(e.start), to: gameDate(e.end) || gameDate(e.start) }))
+    return [...byId.values()].filter(e => all || !e.hidden).map(e => ({ ...e, boostTypes: Array.isArray(e.boostTypes) ? e.boostTypes : [], from: gameDate(e.start), to: gameDate(e.end) || gameDate(e.start) }))
       .sort((a, b) => (a.from || '9999') < (b.from || '9999') ? -1 : 1);
   }
   const official = id => remote.find(e => e.id === id) || null;

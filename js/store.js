@@ -39,9 +39,17 @@ const toYmd = s => {
 // 「夜」の日付の区切り。この時刻より前(早朝)は前日の夜として扱う。ホームの「今夜」と入力の初期日付で共通
 const NIGHT_START_HOUR = 5;
 const tonightYmd = (now = new Date()) => now.getHours() < NIGHT_START_HOUR ? addDays(ymd(now), -1) : ymd(now);
+// 記録・イベントの id に使える形(画面の属性やリンクに入れるので、記号の入ったものは受け付けない)
+const isSafeId = s => (typeof s === 'string' || typeof s === 'number') && /^[A-Za-z0-9_.:-]{1,100}$/.test(String(s));
+// 日時として読める文字列か(イベントの開始・終了)
+const isIsoTime = s => typeof s === 'string' && s.length <= 40 && /^\d{4}-\d{2}-\d{2}/.test(s) && !isNaN(Date.parse(s));
+// リンクにしてよいURLか(http/https だけ。javascript: などは不可)
+const isHttpUrl = s => typeof s === 'string' && s.length <= 500 && /^https?:\/\/[^\s"'<>]+$/i.test(s);
 const hmToMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
 const minToHm = n => `${Math.floor(n / 60)}:${pad2(n % 60)}`;
 const nowIso = () => new Date().toISOString();
+// 読み込むファイルの上限(文字数)。1件およそ300文字なので、数万件ぶんの余裕がある
+const IMPORT_MAX_CHARS = 10 * 1024 * 1024;
 
 const Store = (() => {
   let db = null;
@@ -58,16 +66,35 @@ const Store = (() => {
     out.records = Array.isArray(d.records) ? d.records.map(normalizeRecord).filter(Boolean) : [];
     out.weekTargets = Array.isArray(d.weekTargets) ? d.weekTargets.filter(t => isYmd(t.weekStart) && TARGETS.includes(t.target)) : [];
     out.dayTargets = Array.isArray(d.dayTargets) ? d.dayTargets.filter(t => isYmd(t.date) && TARGETS.includes(t.target)) : [];
-    out.events = Array.isArray(d.events) ? d.events.filter(e => e && e.id && (e.hidden || e.title)) : [];
-    out.settings = { ...DEFAULT_SETTINGS, ...(d.settings || {}) };
-    delete out.settings.includeNaps; // 試作時の設定(分割睡眠を昼寝と誤解していた)。今は使わない
-    delete out.settings.defaultRange; // 平均は直近30回に統一したので、30日/30回の既定表示の設定は使わない
+    out.events = Array.isArray(d.events) ? d.events.map(cleanEvent).filter(Boolean) : [];
+    // 設定は知っている項目だけを、決まった形の値で受け取る(読み込んだファイルの値をそのまま画面に出さないため)。
+    // 試作時の includeNaps、30日/30回の defaultRange など古い項目はここで落ちる
+    const s = d.settings && typeof d.settings === 'object' ? d.settings : {};
+    const days = Number(s.backupRemindDays);
+    if (Number.isInteger(days) && days >= 1 && days <= 365) out.settings.backupRemindDays = days;
+    if (['auto', 'light', 'dark'].includes(s.theme)) out.settings.theme = s.theme;
     out.lastExportAt = d.lastExportAt || null;
     return out;
   }
 
   const TARGETS = ['uto', 'suya', 'gus', 'none'];
   const TYPES = ['none', 'uto', 'suya', 'gus', ''];
+
+  // 手で追加・修正・非表示にしたイベント1件をそろえる。入っていた項目だけを残す
+  // (「非表示」の印だけの {id, hidden} を、公式の内容を上書きしない形のまま保つため)。不正なら null
+  function cleanEvent(e) {
+    if (!e || typeof e !== 'object' || !isSafeId(e.id)) return null;
+    const out = { id: String(e.id) };
+    const has = k => Object.prototype.hasOwnProperty.call(e, k);
+    if (has('hidden')) out.hidden = !!e.hidden;
+    if (has('title') && e.title != null && e.title !== '') out.title = String(e.title).slice(0, 200);
+    if (has('category')) out.category = String(e.category ?? '').slice(0, 40);
+    for (const k of ['start', 'end']) if (has(k)) out[k] = isIsoTime(e[k]) ? e[k] : null;
+    if (has('url')) out.url = isHttpUrl(e.url) ? e.url : '';
+    if (has('typeFree')) out.typeFree = !!e.typeFree;
+    if (has('boostTypes')) out.boostTypes = Array.isArray(e.boostTypes) ? e.boostTypes.filter(k => ['uto', 'suya', 'gus'].includes(k)) : [];
+    return out.hidden || out.title ? out : null;
+  }
 
   // 記録1件を正しい形にそろえる。値がおかしいもの(実在しない日付、範囲外の時刻、
   // 整数でない割合、合計が100でない割合、0以下の睡眠時間)は null を返して取り込まない
@@ -83,7 +110,7 @@ const Store = (() => {
     if (bedTime === null || wakeTime === null) return null;
     if (Number.isNaN(sleepMin) || (sleepMin !== null && (sleepMin <= 0 || sleepMin >= 1440))) return null;
     const rec = {
-      id: r.id ? String(r.id) : newId(),
+      id: isSafeId(r.id) ? String(r.id) : newId(),
       date,
       bedTime,
       wakeTime,
@@ -94,7 +121,7 @@ const Store = (() => {
       autoField: ['uto', 'suya', 'gus'].includes(r.autoField) ? r.autoField : '',
       type: TYPES.includes(r.type) ? r.type : '',
       source: ['manual', 'ocr', 'ocr_edited'].includes(r.source) ? r.source : 'manual',
-      memo: r.memo ? String(r.memo) : '',
+      memo: r.memo ? String(r.memo).slice(0, 500) : '',
       excluded: r.excluded === true || /^(true|1)$/i.test(String(r.excluded == null ? '' : r.excluded).trim()),
       createdAt: r.createdAt || nowIso(),
       updatedAt: r.updatedAt || r.createdAt || nowIso(),
@@ -211,6 +238,8 @@ const Store = (() => {
   // 読み込み。mode: 'replace' 上書き / 'append' 追加(重複は除外)
   // 戻り値: { added, skipped, invalid }
   function importText(text, fileName, mode) {
+    // 端末の保存領域(localStorage は5MB前後)に入らない大きさは、読む前に断る
+    if (text.length > IMPORT_MAX_CHARS) throw new Error('ファイルが大きすぎます(このアプリで書き出したファイルか確認してください)');
     let incoming;
     const isJson = /\.json$/i.test(fileName) || /^\s*\{/.test(text);
     if (isJson) {
@@ -225,10 +254,15 @@ const Store = (() => {
     }
     const invalid = incoming.rawCount - incoming.records.length;
     const d = get();
+    // 保存できなかったとき(容量不足)は、読み込む前の状態に戻す
+    const before = JSON.stringify(d);
+    const commit = () => {
+      try { save(); } catch (e) { db = migrate(JSON.parse(before)); throw new Error('端末の保存領域が足りず、読み込めませんでした'); }
+    };
     if (mode === 'replace') {
       d.records = incoming.records;
       if (isJson) { d.weekTargets = incoming.weekTargets; d.dayTargets = incoming.dayTargets; d.events = incoming.events; if (incoming.hasSettings) d.settings = incoming.settings; }
-      save();
+      commit();
       return { added: incoming.records.length, skipped: 0, invalid };
     }
     let added = 0, skipped = 0;
@@ -239,7 +273,7 @@ const Store = (() => {
     for (const t of incoming.weekTargets) if (!d.weekTargets.some(x => x.weekStart === t.weekStart)) d.weekTargets.push(t);
     for (const t of incoming.dayTargets) if (!d.dayTargets.some(x => x.date === t.date)) d.dayTargets.push(t);
     for (const e of incoming.events || []) if (!d.events.some(x => x.id === e.id)) d.events.push(e);
-    save();
+    commit();
     return { added, skipped, invalid };
   }
 
