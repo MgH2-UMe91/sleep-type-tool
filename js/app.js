@@ -522,6 +522,9 @@ function mountShots(root) {
 // 月を縦に並べ、指でスクロールして過去・未来へ移動する。月の見出しはスクロール中も上に固定。
 // 日をタップすると下からシートで詳細を出す(ページは動かないのでスクロール位置はそのまま)。
 // 詳細から入力画面へ行って戻ったときは、離れたときのスクロール位置に戻す。
+// カレンダーで最初から見せる過去の日数(約3か月)と、「さらに前の月を表示」で戻れるいちばん古い月
+const CAL_PAST_DAYS = 90;
+const CAL_OLDEST_MONTH = '2023-07';
 const calState = { y: null, from: null }; // 離れたときのスクロール位置と、その時点で一番古く描いていた月
 const ymOf = s => s.slice(0, 7);
 const addMonths = (ym, n) => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; };
@@ -547,11 +550,12 @@ function viewCalendar(root, id, q) {
   const moonKindOf = e => /ニュームーンデー/.test(e.title) ? 'new' : /グッドスリープデー/.test(e.title) ? 'full' : null;
   const officialMoon = Events.list().filter(e => e.from && e.to && moonKindOf(e));
   const hasOfficial = sp => officialMoon.some(e => moonKindOf(e) === sp.phase && e.from <= sp.to && e.to >= sp.from);
-  // 表示する範囲:過去は記録のある最初の月まで、未来は狙いの設定とイベントに合わせて(最低3か月先)
+  // 表示する範囲:過去は「今日の約90日前の月」と「記録のある最初の月」の古いほうまで(上の「さらに前の月を表示」でもっと前へ)。
+  // 未来は狙いの設定とイベントに合わせて(最低3か月先)
   const targetDates = d.weekTargets.filter(t => KINDS.includes(t.target)).map(t => addDays(t.weekStart, 6))
     .concat(d.dayTargets.filter(t => KINDS.includes(t.target)).map(t => t.date))
     .concat(Events.list().filter(e => e.to && e.to >= today).map(e => e.to));
-  const firstMonth = [thisMonth, recs.length ? ymOf(recs[0].date) : thisMonth, ...targetDates.map(ymOf)].sort()[0];
+  let firstMonth = [ymOf(addDays(today, -CAL_PAST_DAYS)), recs.length ? ymOf(recs[0].date) : thisMonth, ...targetDates.map(ymOf)].sort()[0];
   const lastMonth = [addMonths(thisMonth, 3), ...targetDates.map(t => addMonths(ymOf(t), 1))].sort().pop();
   const want = q.d && isYmd(q.d) ? q.d : null;
   const restoring = want && calState.y !== null;
@@ -559,6 +563,7 @@ function viewCalendar(root, id, q) {
   // 見たい月の3か月前から。戻ってきたときは、離れたときに描いていた一番古い月から。記録のある最初の月より前には行かない
   let from = addMonths(ymOf(want || today), -3);
   if (restoring && calState.from && calState.from < from) from = calState.from;
+  if (restoring && calState.from && calState.from < firstMonth) firstMonth = calState.from; // 前に「さらに前」で広げた分を保つ
   if (from < firstMonth) from = firstMonth;
 
   function monthHtml(ym) {
@@ -629,7 +634,7 @@ function viewCalendar(root, id, q) {
   root.innerHTML = `
     <p class="small muted">緑の点=入力済み(分割睡眠は件数分) · 色と文字=表示タイプ(なし/うと/すや/ぐっ) · 色の帯=狙う週 · 狙○=日ごとの狙い · 紫の線=イベント · 🌕/●=満月・新月の前後</p>
     <p class="small muted">GSD=満月の前後(満月の日と前後1日の計3日)、NMD=新月の前後(新月の日と前後1日の計3日)。${YAMI}=${YAMI_NOTE}イベント</p>
-    <div id="calTop" class="small muted cal-more">${from > firstMonth ? '前の月を読み込み中…' : ''}</div>
+    <div id="calTop" class="small muted cal-more"></div>
     <div id="calList">${range(from, lastMonth).map(monthHtml).join('')}</div>
     <p class="small muted" style="text-align:center">${Number(lastMonth.slice(0, 4))}年${Number(lastMonth.slice(5))}月まで表示しています</p>
     <button type="button" class="btn today-btn" id="toToday">今日</button>
@@ -691,9 +696,21 @@ function viewCalendar(root, id, q) {
     layoutBars(list);
     from = newFrom;
     window.scrollTo(0, y0 + document.documentElement.scrollHeight - h0);
-    if (from <= firstMonth) topEl.textContent = '';
+    renderTop();
     return true;
   }
+  // いちばん上:まだ読み込む月があれば「読み込み中」、範囲の端まで来たら「さらに前の月を表示」
+  function renderTop() {
+    if (from > firstMonth) topEl.textContent = '前の月を読み込み中…';
+    else if (firstMonth > CAL_OLDEST_MONTH) topEl.innerHTML = '<button type="button" class="btn ghost small" id="calOlder">さらに前の月を表示</button>';
+    else topEl.textContent = '';
+  }
+  topEl.addEventListener('click', e => {
+    if (!e.target.closest('#calOlder')) return;
+    firstMonth = [addMonths(firstMonth, -3), CAL_OLDEST_MONTH].sort().pop();
+    prepend(3);
+  });
+  renderTop();
   // 上端から600px以内に来たら古い月を追加(スクロールのたびに軽く確認するだけ。passive なのでスクロールを止めない)
   let watching = false;
   const onScroll = () => { if (watching && window.scrollY < 600) prepend(); };
