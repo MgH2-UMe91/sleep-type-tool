@@ -64,6 +64,11 @@ function download(name, text, type) {
 function applyTheme() {
   const t = Store.get().settings.theme;
   if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+  // ブラウザの上の帯の色(theme-color)も、テーマを固定したときはそれに合わせる
+  for (const m of document.querySelectorAll('meta[name="theme-color"]')) {
+    const light = m.media.includes('light');
+    m.content = t === 'light' ? '#f3f4f9' : t === 'dark' ? '#11131c' : light ? '#f3f4f9' : '#11131c';
+  }
 }
 
 // ---------- ルーティング(#画面名/ID?キー=値) ----------
