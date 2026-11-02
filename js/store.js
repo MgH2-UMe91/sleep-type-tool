@@ -8,7 +8,8 @@ const STORAGE_KEY = 'sleep-type-tool';
 // 睡眠記録の列(CSVの列順もこれ)
 // 分割睡眠で同じ日付に複数件ありうる。同じ記録かどうかは 日付+就寝時刻 で判定する
 const RECORD_COLUMNS = ['id', 'date', 'bedTime', 'wakeTime', 'sleepMin', 'utoPct', 'suyaPct', 'gusPct',
-  'autoField', 'type', 'source', 'memo', 'createdAt', 'updatedAt'];
+  'autoField', 'type', 'source', 'memo', 'createdAt', 'updatedAt', 'excluded'];
+// excluded:「自分の傾向」の集計から外す(嘘寝など)。任意の項目で、無い記録(古いデータ・古いCSV)は false
 
 const DEFAULT_SETTINGS = {
   backupRemindDays: 30,     // 最後の書き出しから何日でお知らせするか
@@ -94,6 +95,7 @@ const Store = (() => {
       type: TYPES.includes(r.type) ? r.type : '',
       source: ['manual', 'ocr', 'ocr_edited'].includes(r.source) ? r.source : 'manual',
       memo: r.memo ? String(r.memo) : '',
+      excluded: r.excluded === true || /^(true|1)$/i.test(String(r.excluded == null ? '' : r.excluded).trim()),
       createdAt: r.createdAt || nowIso(),
       updatedAt: r.updatedAt || r.createdAt || nowIso(),
     };
@@ -130,6 +132,12 @@ const Store = (() => {
   }
   // 同じ睡眠の記録か(日付+就寝時刻)
   const sameSleep = (a, b) => a.date === b.date && (a.bedTime || '') === (b.bedTime || '');
+  // 「自分の傾向」から外す/戻す
+  function setExcluded(id, v) {
+    const r = get().records.find(x => x.id === id);
+    if (!r) return;
+    r.excluded = !!v; r.updatedAt = nowIso(); save();
+  }
   function deleteRecord(id) { const d = get(); d.records = d.records.filter(r => r.id !== id); save(); }
   function findDuplicate(r) {
     return get().records.find(x => x.id !== r.id && sameSleep(x, r));
@@ -237,6 +245,6 @@ const Store = (() => {
 
   function clearAll() { const s = get().settings; db = empty(); db.settings = s; save(); }
 
-  return { load, get, records, upsertRecord, deleteRecord, findDuplicate, findSameDateUnsure, newId, setWeekTarget, setDayTarget, targetOf,
+  return { load, get, records, upsertRecord, setExcluded, deleteRecord, findDuplicate, findSameDateUnsure, newId, setWeekTarget, setDayTarget, targetOf,
     setSetting, upsertEvent, removeEvent, exportJson, exportCsv, importText, clearAll, normalizeRecord };
 })();

@@ -14,6 +14,8 @@ const USUAL_RATE_PCT = 40;
 const TREND_MIN_N = 10;
 // 傾向の期間。件数(null = 全期間)
 const TREND_PERIODS = { r30: 30, r100: 100, all: null };
+// 怪しい記録の目安:睡眠時間がこれ(分)未満なのにぐっすり。仮の値
+const SUSPECT_SLEEP_MIN = 120;
 
 const Calc = (() => {
   // 基準日(含む)までの記録から、集計対象を選ぶ
@@ -64,11 +66,20 @@ const Calc = (() => {
   }
 
   // 基準日(含む)までの記録の傾向。period: 'r30' | 'r100' | 'all'
+  // 「傾向から除外」の記録は、直近100回・全期間では数えない(直近100回は除外したあとの100件)。
+  // 直近30回はゲームの平均に近づけるため、除外しない(ゲーム側ではこうした記録も平均に入る)
   function tendencyAt(refDate, period = 'all') {
-    const rs = Store.records().filter(r => r.date <= refDate);
+    const all = Store.records().filter(r => r.date <= refDate);
+    const applies = period !== 'r30';
+    const rs = applies ? all.filter(r => !r.excluded) : all;
     const n = TREND_PERIODS[period];
-    return tendency(n ? rs.slice(-n) : rs);
+    return { ...tendency(n ? rs.slice(-n) : rs), excludedCount: all.filter(r => r.excluded).length, excludeApplied: applies };
   }
+
+  // 怪しい記録:睡眠時間が SUSPECT_SLEEP_MIN 分未満なのに、ぐっすり(表示タイプ、または割合の半分以上)。除外済みは除く。新しい順
+  const suspicious = () => Store.records()
+    .filter(r => !r.excluded && r.sleepMin != null && r.sleepMin < SUSPECT_SLEEP_MIN && (r.type === 'gus' || r.gusPct >= 50))
+    .reverse();
 
   // その夜の推定タイプ:その夜より前の平均と比べ、平均より一番多く出たもの。差が小さければ「とくちょうなし」
   function estimateType(rec, range = 'count') {
@@ -180,5 +191,5 @@ const Calc = (() => {
     return ((hmToMin(wake) - hmToMin(bed)) % 1440 + 1440) % 1440;
   }
 
-  return { pick, stats, averageAt, reliability, tendency, tendencyAt, estimateType, planFor, windowDays, missingDays, spanMin, fmtMd };
+  return { pick, stats, averageAt, reliability, tendency, tendencyAt, suspicious, estimateType, planFor, windowDays, missingDays, spanMin, fmtMd };
 })();
