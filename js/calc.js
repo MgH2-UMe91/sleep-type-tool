@@ -14,6 +14,10 @@ const USUAL_RATE_PCT = 40;
 const TREND_MIN_N = 10;
 // 傾向の期間。件数(null = 全期間)
 const TREND_PERIODS = { r30: 30, r100: 100, all: null };
+// 狙い週の窓の見込み:B「反対側を意識」で、これからの夜の反対側の割合を普段の平均から何ポイント寄せるとみなすか。仮の値
+const PREP_SHIFT_PT = 10;
+// 狙い週時点の見込み平均で、狙うタイプが全期間の平均よりこれだけ(ポイント)低ければ、普段どおりでも狙い週に目立ちやすいとみなす。仮の値
+const PROJ_USUAL_GAP_PT = 5;
 // 期間の比較で「差が大きい」と印を付ける差(ポイント)。直近30回と比べる。仮の値
 const COMPARE_DIFF_PT = 5;
 // 怪しい記録の目安:睡眠時間がこれ(分)未満なのにぐっすり。仮の値
@@ -107,13 +111,70 @@ const Calc = (() => {
     return { k: c, why: `${TYPE_LABEL[c]}のほうが普段の平均が高く(${avg[c].mean.toFixed(1)}%)、すやすやの少ない夜を作りやすいため(簡易ルール)` };
   }
 
-  // 直近30回が何日ぶんにあたるか。分割睡眠の頻度(直近60日の、記録のある日1日あたりの件数)から見積もる
-  function windowDays(date) {
+  // 1日(1夜)あたりの記録の件数。分割睡眠の頻度(直近60日の、記録のある日1日あたりの件数)から見積もる
+  function perDayAt(date) {
     const from = addDays(date, -59);
     const rs = Store.records().filter(r => r.date >= from && r.date <= date);
     const days = new Set(rs.map(r => r.date)).size;
-    const perDay = rs.length >= 10 && days ? rs.length / days : 1;
-    return Math.max(1, Math.ceil(RANGE_N / perDay));
+    return rs.length >= 10 && days ? rs.length / days : 1;
+  }
+  // 直近30回が何日ぶんにあたるか
+  const windowDays = date => Math.max(1, Math.ceil(RANGE_N / perDayAt(date)));
+
+  // ---------- 狙い週の窓(推定) ----------
+  // ゲームが狙い週(開始日 S)に見る平均は、S の前日までの直近30回(推定)。
+  // 今日(today)から S までの夜はまだ記録がないので「これから入る夜」とし、その分だけ今の記録の古いほうが窓から抜ける。
+  // 集計外の記録も窓に含める(直近30回はゲームの平均に近づけるため)
+  function windowAt(S, today) {
+    const all = Store.records().filter(r => r.date < S && r.date <= today);
+    const cur = pick(all, today, 'count');
+    const perDay = perDayAt(today);
+    // これからの夜:今日の夜がまだ記録されていなければ今日から、記録済みなら明日から、S の前日まで
+    const futureFrom = all.some(r => r.date === today) ? addDays(today, 1) : today;
+    const nights = Math.max(0, daysBetween(futureFrom, S));
+    const future = Math.min(RANGE_N, Math.round(nights * perDay));
+    const keep = RANGE_N - future;
+    const stay = keep > 0 ? all.slice(-keep) : [];
+    const staySet = new Set(stay);
+    const drop = cur.filter(r => !staySet.has(r));
+    // 窓の期間:残る記録の最初の日(すべて入れ替わるなら、これからの夜の30件ぶんの始まり)〜S の前日
+    const from = stay.length ? stay[0].date : addDays(S, -Math.max(1, Math.ceil(future / perDay)));
+    return { S, today, cur, stay, drop, nights, future, perDay, from, to: addDays(S, -1) };
+  }
+
+  // これからの夜を埋める割合。A=普段どおり(全期間の平均)/ B=反対側を意識(反対側に PREP_SHIFT_PT 寄せる)
+  function fillPct(today, mode, aim) {
+    const base = tendencyAt(today, 'all').stats;
+    const v = {};
+    for (const k of KINDS) v[k] = base.n ? base[k].mean : 100 / 3;
+    if (mode === 'B' && aim) {
+      const c = counterOf(aim, averageAt(today, 'count')).k;
+      const move = Math.min(PREP_SHIFT_PT, v[aim], 100 - v[c]);
+      v[aim] -= move; v[c] += move;
+    }
+    return v;
+  }
+
+  // 狙い週時点の30回平均の見込み。stats と同じ形({ n, uto: { mean }, ... })に、real(残る実記録)・future(これからの夜)を付ける
+  function projectAverage(S, mode = 'A', aim = null, today = tonightYmd()) {
+    const w = windowAt(S, today), fill = fillPct(today, mode, aim);
+    const n = w.stay.length + w.future;
+    const out = { n, real: w.stay.length, future: w.future, mode, isReference: n < RANGE_N };
+    for (const k of KINDS) {
+      out[k] = n ? { mean: (w.stay.reduce((a, r) => a + r[PCT_KEY[k]], 0) + w.future * fill[k]) / n } : null;
+    }
+    if (mode === 'B' && aim) out.counter = counterOf(aim, averageAt(today, 'count')).k;
+    return out;
+  }
+
+  // 抜ける記録だけで平均がどれだけ動くか(タイプ別、ポイント)。残る記録の平均 − 今の直近30回の平均。
+  // 全部入れ替わる・何も抜けないときは null
+  function abandonImpact(S, today = tonightYmd()) {
+    const w = windowAt(S, today);
+    if (!w.drop.length || !w.stay.length) return null;
+    const a = stats(w.cur), b = stats(w.stay), out = {};
+    for (const k of KINDS) out[k] = b[k].mean - a[k].mean;
+    return out;
   }
 
   // date より後に始まる狙い(週の狙いと日の上書き)を近い順に
@@ -153,17 +214,26 @@ const Calc = (() => {
           title: '普段どおりでOK',
           reason: `狙いまで${left}日あり、平均に使う直近30回(いまの記録の頻度で約${win}日ぶん)より先なので、まだ影響しない期間です。あと${left - win}日ほどしたら意識を始めましょう。` };
       } else {
+        // 平均は「狙い週の直前30回」の見込み(これからの夜は普段どおりとみなす)で考える(推定)
+        const proj = projectAverage(x.start, 'A', k, date);
+        const ppct = proj.n ? proj[k].mean.toFixed(1) + '%' : '—';
+        const ref = tendencyAt(date, 'all');
+        const gap = proj.n && ref.stats.n ? ref.stats[k].mean - proj[k].mean : null;
         // 全期間の記録で、狙うタイプが普段から出やすいなら、反対側を狙わず普段どおりで十分(推定)
-        const tr = tendencyAt(date, 'all');
-        if (tr.typed >= TREND_MIN_N && tr.rate[k] >= USUAL_RATE_PCT) {
-          plan = { kind: 'usual', type: null, aim: k, next,
+        const tr = ref;
+        if (gap != null && proj.real > 0 && ref.stats.n >= TREND_MIN_N && gap >= PROJ_USUAL_GAP_PT) {
+          plan = { kind: 'usual', type: null, aim: k, next, proj,
+            title: '普段どおりで十分です',
+            reason: `狙い週(${fmtMd(x.start)}〜)の直前30回の見込みでは、${TYPE_LABEL[k]}の平均は${ppct}で、あなたの普段(全期間 ${ref.stats[k].mean.toFixed(1)}%)より${gap.toFixed(1)}ポイント低くなりそうです。普段どおりに寝れば、狙う週に「平均より多い」になりやすい見込みです(推定)。` };
+        } else if (tr.typed >= TREND_MIN_N && tr.rate[k] >= USUAL_RATE_PCT) {
+          plan = { kind: 'usual', type: null, aim: k, next, proj,
             title: '普段どおりで十分です',
             reason: `あなたの記録では、${TYPE_LABEL[k]}が出た夜は全期間で${tr.rate[k].toFixed(0)}%(${tr.counts[k]}/${tr.typed}回・${tr.level})。普段から出やすいので、前の週に反対側を狙わなくても、狙う週に出る見込みがあります(記録から数えた目安・推定)。` };
         } else {
         const c = counterOf(k, avg);
-        plan = { kind: 'prep', type: c.k, aim: k, next,
+        plan = { kind: 'prep', type: c.k, aim: k, next, proj,
           title: `${TYPE_LABEL[c.k]}を意識して寝る`,
-          reason: `${TYPE_LABEL[k]}の直近30回の平均 ${pct(k)} → 下げたい。狙う週の前に${TYPE_LABEL[k]}を少なめにしておくと、狙う週に「平均より多い」になりやすい(推定)。` + (c.why ? `${TYPE_LABEL[c.k]}を選んだ理由:${c.why}。` : '') };
+          reason: `狙い週(${fmtMd(x.start)}〜)の直前30回の見込みで、${TYPE_LABEL[k]}の平均 ${ppct}(今日の直近30回は ${pct(k)})→ 下げたい。狙う週の前に${TYPE_LABEL[k]}を少なめにしておくと、狙う週に「平均より多い」になりやすい(推定)。` + (c.why ? `${TYPE_LABEL[c.k]}を選んだ理由:${c.why}。` : '') };
         }
       }
     }
@@ -193,5 +263,6 @@ const Calc = (() => {
     return ((hmToMin(wake) - hmToMin(bed)) % 1440 + 1440) % 1440;
   }
 
-  return { pick, stats, averageAt, reliability, tendency, tendencyAt, suspicious, estimateType, planFor, windowDays, missingDays, spanMin, fmtMd };
+  return { pick, stats, averageAt, reliability, tendency, tendencyAt, suspicious, estimateType, planFor, windowDays, perDayAt, upcomingTargets,
+    windowAt, projectAverage, abandonImpact, missingDays, spanMin, fmtMd };
 })();

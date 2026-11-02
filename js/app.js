@@ -173,6 +173,35 @@ function compareTable(refDate) {
     ${ps.some(x => x.same) ? `<p class="small muted">${ps.filter(x => x.same).map(x => `${TREND_SHORT[x.p]}は${TREND_SHORT[x.same]}と同じ記録です`).join('。')}(記録がまだ少ないため)。</p>` : ''}`;
 }
 
+// 狙い週の窓(推定):次の狙いの直前30回に、今の記録のどれが残り、どれが抜けるか。平均の見込みを今日と比べる
+function windowCard(today) {
+  const x = Calc.upcomingTargets(today)[0];
+  if (!x) return '';
+  const k = x.k, w = Calc.windowAt(x.start, today);
+  const A = Calc.projectAverage(x.start, 'A', k, today), B = Calc.projectAverage(x.start, 'B', k, today);
+  const now = Calc.stats(w.cur), imp = Calc.abandonImpact(x.start, today);
+  const c = B.counter;
+  const sign = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
+  const bar = (label, st) => st && st.n ? `<div class="stack avg3-row"><div class="row avg3-head"><b class="small">${label}</b><span class="small muted">${st.n}件${st.future ? `(うち見込み${st.future})` : ''}</span></div>
+    <div class="avgbar" aria-hidden="true">${KINDS.map(t => `<span class="t-${t}" style="width:${st[t].mean}%"></span>`).join('')}</div>
+    <div class="avg3 num small">${KINDS.map(t => `<span${t === k ? ' class="aimv"' : ''}>${fmtPct(st[t].mean)}%</span>`).join('')}</div></div>` : '';
+  const drops = w.drop.slice().reverse();
+  return `<section class="card wincard">
+    <h2 class="small-h">狙い週の窓(推定)</h2>
+    <p class="small"><b>${x.week ? `${Calc.fmtMd(x.start)}週` : Calc.fmtMd(x.start)}(${TYPE_LABEL[k]}狙い)</b>の直前30回 = ${Calc.fmtMd(w.from)}〜${Calc.fmtMd(w.to)}。
+      いまの記録で残るのは${w.stay.length}件、これから入る夜は約${w.future}件。</p>
+    ${drops.length ? `<details class="small"><summary>窓から抜ける記録 ${drops.length}件${imp ? `(抜ける分の影響:${KINDS.map(t => `${TYPE_LABEL[t]} ${sign(imp[t])}pt`).join(' / ')})` : ''}</summary>
+      <div class="row drops">${drops.map(r => `<span class="drop">${Calc.fmtMd(r.date)} ${r.type ? `<span class="tl t-${r.type}">${SHORT[r.type]}</span>` : ''}<span class="num muted">${r.utoPct}/${r.suyaPct}/${r.gusPct}</span></span>`).join('')}</div></details>`
+      : `<p class="small muted">${w.cur.length < RANGE_N && !drops.length ? 'まだ30件たまっていないので、狙い週までに抜ける記録はありません。' : '抜ける記録はありません。'}</p>`}
+    <div class="avg3 avg3-legend small" aria-hidden="true">${KINDS.map(t => `<span class="pct-label">${pctDot(t)}${TYPE_LABEL[t]}</span>`).join('')}</div>
+    ${bar('今日の直近30回', now)}
+    ${bar('狙い週時点 A:普段どおり', A)}
+    ${c ? bar(`狙い週時点 B:${TYPE_LABEL[c]}を意識`, B) : ''}
+    ${w.future && c ? `<p class="small">残り約${w.future}夜で${TYPE_LABEL[c]}を意識すれば、${TYPE_LABEL[k]}の平均は約${B[k].mean.toFixed(1)}%まで${B[k].mean <= now[k]?.mean ? '下がる' : 'になる'}見込みです。</p>` : ''}
+    <p class="small muted">ゲームの内部の判定は非公開のため、すべて推定です。これからの夜は、A=あなたの全期間の平均、B=そこから${TYPE_LABEL[c] || '反対側'}へ${PREP_SHIFT_PT}ポイント寄せた値として計算しています。</p>
+  </section>`;
+}
+
 // ================= ホーム =================
 // ホーム画面に追加したアプリ(standalone)として開いているか。iOS は navigator.standalone も見る
 // ブラウザ版とアプリ版は localStorage が別なので、記録も別々に保存される
@@ -212,6 +241,7 @@ function viewHome(root) {
     ${plan.more ? `<p class="small muted">${esc(plan.more)}</p>` : ''}
     ${plan.kind === 'unset' ? '<a class="btn" href="#targets">狙う週を決める</a>' : '<p class="small"><a href="#targets">狙う週を決める・変える</a></p>'}
   </section>
+  ${plan.kind === 'prep' || plan.kind === 'usual' ? windowCard(today) : ''}
   ${(() => {
     const ws = mondayOf(today), sp = Moon.spansBetween(ws, addDays(ws, 13));
     return sp.length ? `<section class="card"><h2 class="small-h">今週・来週の GSD / NMD</h2>
@@ -935,6 +965,7 @@ function viewTargets(root) {
       <p class="small">タイプを出したい週にだけ、狙うタイプを付けてください。狙わない週は「狙わない」のままで大丈夫です。その週には、次の狙いに向けて意識するタイプを自動で表示します。</p>
       <p class="small muted">考え方(推定):タイプは、その夜の割合が直近30回の平均より目立って多いものになる。狙う週の前は狙うタイプを少なめにして平均を下げておくと、狙う週に出やすい。週は月曜始まり。</p>
     </section>
+    ${windowCard(tonightYmd())}
     <div class="stack" id="tg">${weeks}</div>`;
     $$('.dayover', root).forEach(el => el.addEventListener('toggle', () => { if (el.open) openDays.add(el.dataset.ws); else openDays.delete(el.dataset.ws); }));
   }
@@ -969,6 +1000,7 @@ function viewStats(root) {
       <h2>3つの期間の比較</h2>
       ${compareTable(today)}
     </section>
+    ${windowCard(today)}
     <section class="card">
       <h2>自分の傾向</h2>
       <div class="seg trend-seg" role="group" aria-label="傾向の期間">
