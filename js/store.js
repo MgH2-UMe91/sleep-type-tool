@@ -36,9 +36,17 @@ const toYmd = s => {
   const v = `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
   return isYmd(v) ? v : null;
 };
-// 「夜」の日付の区切り。この時刻より前(早朝)は前日の夜として扱う。ホームの「今夜」と入力の初期日付で共通
-const NIGHT_START_HOUR = 5;
+// 「夜」の日付の区切り。ゲームの日付は午前4時に切り替わるので、この時刻より前(0:00〜3:59)は前日の夜として扱う。
+// ホームの「今夜」・入力の初期日付・記録の並び順で共通
+const NIGHT_START_HOUR = 4;
 const tonightYmd = (now = new Date()) => now.getHours() < NIGHT_START_HOUR ? addDays(ymd(now), -1) : ymd(now);
+// 記録を実際の時間順に並べるための鍵。0:00〜3:59 の就寝は同じ日付の夜の後半なので 24:00〜27:59 として扱う
+const sleepOrderKey = r => {
+  const t = r.bedTime;
+  if (!t) return r.date + ' 99:99';
+  const [h, m] = t.split(':').map(Number);
+  return `${r.date} ${pad2(h < NIGHT_START_HOUR ? h + 24 : h)}:${pad2(m)}`;
+};
 // 記録・イベントの id に使える形(画面の属性やリンクに入れるので、記号の入ったものは受け付けない)
 const isSafeId = s => (typeof s === 'string' || typeof s === 'number') && /^[A-Za-z0-9_.:-]{1,100}$/.test(String(s));
 // 日時として読める文字列か(イベントの開始・終了)
@@ -144,8 +152,8 @@ const Store = (() => {
   function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }
   const get = () => db || load();
 
-  // 日付→就寝時刻の順に並べる
-  const sortKey = r => r.date + ' ' + (r.bedTime || '99:99');
+  // 日付→就寝時刻の順に並べる(0:00〜3:59 の就寝はその日付の夜の後半)
+  const sortKey = sleepOrderKey;
   function records() { return get().records.slice().sort((a, b) => sortKey(a) < sortKey(b) ? -1 : sortKey(a) > sortKey(b) ? 1 : 0); }
 
   function upsertRecord(r) {

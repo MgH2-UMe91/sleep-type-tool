@@ -25,8 +25,8 @@ const Calc = (() => {
   function pick(all, refDate, range, opts = {}) {
     let rs = all.filter(r => r.date <= refDate);
     if (opts.before) {
-      const k = opts.before.date + ' ' + (opts.before.bedTime || '99:99');
-      rs = rs.filter(r => r.id !== opts.before.id && (r.date + ' ' + (r.bedTime || '99:99')) < k);
+      const k = sleepOrderKey(opts.before);
+      rs = rs.filter(r => r.id !== opts.before.id && sleepOrderKey(r) < k);
     }
     if (range === 'days') { const from = addDays(refDate, -(RANGE_N - 1)); return rs.filter(r => r.date >= from); }
     return rs.slice(-RANGE_N); // all は古い順に並んでいる前提
