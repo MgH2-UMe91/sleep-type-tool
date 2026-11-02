@@ -127,13 +127,13 @@ function trendPeriods(refDate) {
   }
   return out;
 }
-// ホームの平均カード:期間ごとに帯グラフと3つの平均を1行ずつ(列は上の見出しにそろえる)
+// ホームの平均カード:3つの期間それぞれに帯グラフと3つの平均(列は上の見出しにそろえる)
 function avgRows(refDate) {
   const ps = trendPeriods(refDate);
   if (!ps[0].tr.n) return '<p class="small muted">記録がありません。</p>';
-  const row = ({ p, tr, same }) => {
+  // 中身が同じ期間でも省略せず、3本とも帯グラフで並べる
+  const row = ({ p, tr }) => {
     const head = `<div class="row avg3-head"><b>${TREND_SHORT[p]}</b>${TREND_SUB[p] ? `<span class="small muted">${TREND_SUB[p]}</span>` : ''}`;
-    if (same) return `${head}<span class="small muted">${TREND_SHORT[same]}と同じ(${tr.n}件)</span></div>`;
     if (!tr.n) return `${head}<span class="small muted">記録なし</span></div>`;
     const st = tr.stats;
     return `<div class="stack avg3-row">${head}<span class="small muted">${tr.n}件</span><span class="ref">${tr.level}</span></div>
@@ -221,7 +221,6 @@ function viewHome(root) {
   const lastExp = Store.get().lastExportAt;
   const expDays = lastExp ? daysBetween(ymd(new Date(lastExp)), today) : null;
   const needBackup = recs.length > 0 && (lastExp === null || expDays >= s.backupRemindDays);
-  const last = recs[recs.length - 1];
 
   const standalone = isStandalone();
   root.innerHTML = `
@@ -248,10 +247,6 @@ function viewHome(root) {
     ${avgRows(today)}
     <p class="small muted"><a href="#stats">くわしい統計・3つの期間の比較</a></p>
   </section>
-  ${last ? `<section class="card"><h2>最新の記録</h2>
-    <div class="row">${tchip(last.type)}<span>${fmtDate(last.date)}</span>
-    <span class="num small">${last.utoPct}/${last.suyaPct}/${last.gusPct}</span>
-    <span class="small muted">${last.sleepMin != null ? minToHm(last.sleepMin) : ''}</span></div></section>` : ''}
   <div class="grid2">
     <a class="btn" href="#input">記録を入力</a>
     <a class="btn ghost" href="#calendar">カレンダー</a>
