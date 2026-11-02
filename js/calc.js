@@ -14,6 +14,8 @@ const USUAL_RATE_PCT = 40;
 const TREND_MIN_N = 10;
 // 傾向の期間。件数(null = 全期間)
 const TREND_PERIODS = { r30: 30, r100: 100, all: null };
+// 期間の比較で「差が大きい」と印を付ける差(ポイント)。直近30回と比べる。仮の値
+const COMPARE_DIFF_PT = 5;
 // 怪しい記録の目安:睡眠時間がこれ(分)未満なのにぐっすり。仮の値
 const SUSPECT_SLEEP_MIN = 120;
 

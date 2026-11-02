@@ -113,6 +113,66 @@ function avgBlock(st, label) {
     </div></div>`;
 }
 
+// 3つの期間(直近30回・直近100回・全期間)の傾向を Calc.tendencyAt で求める。
+// 記録が少なくて前の期間と中身が同じになるものは same にその期間を入れる(重ねて表示しないため)
+const TREND_SHORT = { r30: '直近30回', r100: '直近100回', all: '全期間' };
+const TREND_SUB = { r30: 'ゲームの平均', r100: '', all: '本来の姿' };
+function trendPeriods(refDate) {
+  const out = [];
+  for (const p of Object.keys(TREND_PERIODS)) {
+    const tr = Calc.tendencyAt(refDate, p);
+    const key = JSON.stringify([tr.n, tr.counts, KINDS.map(k => tr.stats[k] && tr.stats[k].mean)]);
+    const prev = out.find(x => x.key === key);
+    out.push({ p, tr, key, same: prev ? (prev.same || prev.p) : null });
+  }
+  return out;
+}
+// ホームの平均カード:期間ごとに帯グラフと3つの平均を1行ずつ(列は上の見出しにそろえる)
+function avgRows(refDate) {
+  const ps = trendPeriods(refDate);
+  if (!ps[0].tr.n) return '<p class="small muted">記録がありません。</p>';
+  const row = ({ p, tr, same }) => {
+    const head = `<div class="row avg3-head"><b>${TREND_SHORT[p]}</b>${TREND_SUB[p] ? `<span class="small muted">${TREND_SUB[p]}</span>` : ''}`;
+    if (same) return `${head}<span class="small muted">${TREND_SHORT[same]}と同じ(${tr.n}件)</span></div>`;
+    if (!tr.n) return `${head}<span class="small muted">記録なし</span></div>`;
+    const st = tr.stats;
+    return `<div class="stack avg3-row">${head}<span class="small muted">${tr.n}件</span><span class="ref">${tr.level}</span></div>
+      <div class="avgbar" aria-hidden="true">${KINDS.map(k => `<span class="t-${k}" style="width:${st[k].mean}%"></span>`).join('')}</div>
+      <div class="avg3 num" aria-label="平均 ${KINDS.map(k => `${TYPE_LABEL[k]} ${fmtPct(st[k].mean)}%`).join('、')}">${KINDS.map(k => `<span>${fmtPct(st[k].mean)}%</span>`).join('')}</div></div>`;
+  };
+  return `<div class="avg3 avg3-legend small" aria-hidden="true">${KINDS.map(k => `<span class="pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span>`).join('')}</div>
+    ${ps.map(row).join('')}
+    <p class="small muted">直近100回・全期間は、集計外の記録を除いて計算します。</p>`;
+}
+
+// 統計:3つの期間の比較表。直近30回との差が COMPARE_DIFF_PT ポイントを超える数字に印(*)
+function compareTable(refDate) {
+  const ps = trendPeriods(refDate), base = ps[0].tr;
+  if (!base.n) return '<p class="small muted">記録がありません。</p>';
+  let marked = false;
+  const cell = (tr, i, v, b) => {
+    if (v == null) return '<td class="num">—</td>';
+    const dif = i > 0 && b != null && Math.abs(v - b) > COMPARE_DIFF_PT;
+    if (dif) marked = true;
+    return `<td class="num${dif ? ' dif' : ''}">${fmtPct(v)}${dif ? '*' : ''}</td>`;
+  };
+  const line = (label, get) => `<tr><td>${label}</td>${ps.map(({ tr }, i) => cell(tr, i, get(tr), get(base))).join('')}</tr>`;
+  const sec = t => `<tr class="sec"><td colspan="4">${t}</td></tr>`;
+  const body = `
+    <tr><th></th>${ps.map(({ p }) => `<th>${TREND_SHORT[p]}${TREND_SUB[p] ? `<br><small>${TREND_SUB[p]}</small>` : ''}</th>`).join('')}</tr>
+    <tr><td>件数</td>${ps.map(({ tr }) => `<td class="num">${tr.n}</td>`).join('')}</tr>
+    <tr><td>信頼度</td>${ps.map(({ tr }) => `<td>${tr.typed ? `<span class="ref">${tr.level}</span>` : '—'}</td>`).join('')}</tr>
+    ${sec('割合の平均(%)')}
+    ${KINDS.map(k => line(`${pctDot(k)}${TYPE_LABEL[k]}`, tr => tr.stats[k] && tr.stats[k].mean)).join('')}
+    ${sec('ばらつき(標準偏差)')}
+    ${KINDS.map(k => line(`${pctDot(k)}${TYPE_LABEL[k]}`, tr => tr.stats[k] && tr.stats[k].sd)).join('')}
+    ${sec('タイプの出やすさ(何%の夜に出たか)')}
+    ${['uto', 'suya', 'gus', 'none'].map(k => line(TYPE_LABEL[k], tr => tr.typed ? tr.rate[k] : null)).join('')}`;
+  return `<div class="tbl-wrap"><table class="cmp">${body}</table></div>
+    ${marked ? `<p class="small muted">* 直近30回と${COMPARE_DIFF_PT}ポイントより大きく違う数字。</p>` : ''}
+    ${ps.some(x => x.same) ? `<p class="small muted">${ps.filter(x => x.same).map(x => `${TREND_SHORT[x.p]}は${TREND_SHORT[x.same]}と同じ記録です`).join('。')}(記録がまだ少ないため)。</p>` : ''}`;
+}
+
 // ================= ホーム =================
 // ホーム画面に追加したアプリ(standalone)として開いているか。iOS は navigator.standalone も見る
 // ブラウザ版とアプリ版は localStorage が別なので、記録も別々に保存される
@@ -128,7 +188,6 @@ function viewHome(root) {
   const s = Store.get().settings;
   const plan = Calc.planFor(today);
   const weekEvents = Events.forWeek(mondayOf(today));
-  const a30n = Calc.averageAt(today, 'count');
   const missing = Calc.missingDays(today);
   const recs = Store.records();
   const lastExp = Store.get().lastExportAt;
@@ -163,9 +222,9 @@ function viewHome(root) {
   ${missing.length ? `<section class="card"><h2>未入力の日</h2><p class="small muted">直近14日で記録がない日</p>
     <div class="row">${missing.map(d => `<a class="btn ghost small" href="#input?date=${d}">${fmtDate(d)}</a>`).join('')}</div></section>` : ''}
   <section class="card">
-    <h2>直近30回の平均</h2>
-    ${avgBlock(a30n, '直近30回')}
-    <p class="small muted"><a href="#stats">くわしい統計・自分の傾向</a></p>
+    <h2>平均</h2>
+    ${avgRows(today)}
+    <p class="small muted"><a href="#stats">くわしい統計・3つの期間の比較</a></p>
   </section>
   ${last ? `<section class="card"><h2>最新の記録</h2>
     <div class="row">${tchip(last.type)}<span>${fmtDate(last.date)}</span>
@@ -906,6 +965,10 @@ function viewStats(root) {
     const label = range === 'days' ? '参考:直近30日' : '直近30回';
     const tr = Calc.tendencyAt(today, period);
     root.innerHTML = `
+    <section class="card">
+      <h2>3つの期間の比較</h2>
+      ${compareTable(today)}
+    </section>
     <section class="card">
       <h2>自分の傾向</h2>
       <div class="seg trend-seg" role="group" aria-label="傾向の期間">

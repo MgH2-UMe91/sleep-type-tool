@@ -129,6 +129,17 @@ input.bad, select.bad { border-color: var(--err); background: var(--err-soft); }
 .avgbar span { display: block; }
 .avgtbl { display: grid; grid-template-columns: auto 1fr 1fr 1fr; gap: 2px 10px; font-size: .9rem; align-items: center; }
 .avgtbl .h { color: var(--muted); font-size: .78rem; }
+/* ホームの平均:3つの期間を縦に。数字は見出し(うとうと・すやすや・ぐっすり)の列にそろえる */
+.avg3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 8px; }
+.avg3.num { font-size: .9rem; }
+.avg3-legend { color: var(--muted); }
+.avg3-row { gap: 4px; }
+.avg3-head { gap: 4px 8px; }
+/* 統計の比較表 */
+table.cmp th small { font-weight: 400; }
+table.cmp tr.sec td { color: var(--muted); font-size: .75rem; font-weight: 700; padding-top: 10px; text-align: left; }
+table.cmp td.dif { color: var(--accent); font-weight: 700; }
+table.cmp td, table.cmp th { padding: 5px 6px; }
 
 /* 表 */
 .tbl-wrap { overflow-x: auto; }
