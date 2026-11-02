@@ -120,9 +120,6 @@ function viewHome(root) {
   const s = Store.get().settings;
   const plan = Calc.planFor(today);
   const weekEvents = Events.forWeek(mondayOf(today));
-  // 次の(または今の)狙い週が闇鍋(typeFree)のイベントと重なっていたら注意
-  const aimWeek = Store.get().weekTargets.filter(t => KINDS.includes(t.target) && addDays(t.weekStart, 6) >= today).sort((a, b) => a.weekStart < b.weekStart ? -1 : 1)[0];
-  const aimFree = aimWeek ? Events.forWeek(aimWeek.weekStart).filter(Events.isYami) : [];
   const a30n = Calc.averageAt(today, 'count');
   const missing = Calc.missingDays(today);
   const recs = Store.records();
@@ -141,7 +138,6 @@ function viewHome(root) {
     </div>
     <p class="small">${esc(plan.reason)}</p>
     ${plan.more ? `<p class="small muted">${esc(plan.more)}</p>` : ''}
-    ${aimFree.length ? `<p class="msg warn">${fmtDate(aimWeek.weekStart)}の狙い週は「${esc(Events.displayTitle(aimFree[0].title))}」(${YAMI}:${YAMI_NOTE}イベント)と重なっています。狙い週をずらすことも考えてみてください。</p>` : ''}
     ${plan.kind === 'unset' ? '<a class="btn" href="#targets">狙う週を決める</a>' : '<p class="small"><a href="#targets">狙う週を決める・変える</a></p>'}
   </section>
   ${(() => {
@@ -807,12 +803,10 @@ function viewTargets(root) {
       const aim = wt && KINDS.includes(wt.target) ? wt.target : '';
       const overrides = d.dayTargets.filter(t => t.date >= ws && t.date <= addDays(ws, 6));
       // 狙わない週には、狙う週に向けたおすすめを自動で出す(今週は今夜の時点、ほかの週は月曜の時点で計算)
-      // 公式イベント。闇鍋(typeFree)の週は狙い週にするともったいない。タイプが有利になる週は狙い週の候補
+      // 公式イベント。【闇鍋】は印を付けて並べるだけ(狙い週の良し悪しは判断しない)。タイプが有利になる週は狙い週の候補
       const wevs = Events.forWeek(ws);
-      const free = wevs.some(Events.isYami);
       const boost = [...new Set(wevs.flatMap(e => e.boostTypes))];
       const evHtml = wevs.length ? `<div class="stack">${wevs.map(e => `<span class="small"><span class="ev-tag ${Events.isYami(e) ? 'free' : ''}">${Events.isYami(e) ? YAMI : 'イベント'}</span> ${esc(Events.displayTitle(e.title))} <span class="muted">${Events.periodLabel(e)}</span></span>`).join('')}
-        ${free ? `<p class="msg warn">${YAMI}の週(${YAMI_NOTE})${aim ? 'です。狙い週にするのはもったいないかもしれません' : ':狙い週にするのはもったいない'}</p>` : ''}
         ${boost.length ? `<p class="msg ok">${boost.map(k => TYPE_LABEL[k]).join('・')}の狙い週の候補(イベントで${boost.map(k => TYPE_LABEL[k]).join('・')}が有利)</p>` : ''}</div>` : '';
       let note;
       if (aim) note = `<span class="tchip t-${aim}">${TYPE_LABEL[aim]}を狙う週</span>`;
