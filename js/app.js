@@ -72,7 +72,7 @@ function applyTheme() {
 }
 
 // ---------- ルーティング(#画面名/ID?キー=値) ----------
-const APP_NAME = '睡眠タイプ管理ツール';
+const APP_NAME = '睡眠タイプ予報';
 const FOR_GAME = 'ポケモンスリープ';
 const FULL_NAME = `${APP_NAME} for ${FOR_GAME}`;
 // 公式イベントの typeFree(どのタイプのポケモンも出る)の呼び名。内部のデータ名は typeFree のまま
