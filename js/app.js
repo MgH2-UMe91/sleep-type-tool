@@ -543,7 +543,7 @@ function viewCalendar(root, id, q) {
     const startCol = k => { const [ws, ym] = k.split('|'); let x = e.from > ws ? e.from : ws; if (ymOf(x) < ym) x = ym + '-01'; return daysBetween(ws, x); };
     slotOf[e.id] = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || startCol(a) - startCol(b) || (a < b ? -1 : 1))[0];
   }
-  // 公式の NMD・GSD イベントと重なる月相の期間は、●NMD/○GSD の札を出さない(回数つきの公式の表記だけにする)
+  // 公式の NMD・GSD イベントと重なる月相の期間は、●NMD/🌕GSD の札を出さない(回数つきの公式の表記だけにする)
   const moonKindOf = e => /ニュームーンデー/.test(e.title) ? 'new' : /グッドスリープデー/.test(e.title) ? 'full' : null;
   const officialMoon = Events.list().filter(e => e.from && e.to && moonKindOf(e));
   const hasOfficial = sp => officialMoon.some(e => moonKindOf(e) === sp.phase && e.from <= sp.to && e.to >= sp.from);
@@ -627,7 +627,7 @@ function viewCalendar(root, id, q) {
   const range = (a, b) => { const out = []; for (let ym = a; ym <= b; ym = addMonths(ym, 1)) out.push(ym); return out; };
 
   root.innerHTML = `
-    <p class="small muted">緑の点=入力済み(分割睡眠は件数分) · 色と文字=表示タイプ(なし/うと/すや/ぐっ) · 色の帯=狙う週 · 狙○=日ごとの狙い · 紫の線=イベント · ○/●=満月・新月の前後</p>
+    <p class="small muted">緑の点=入力済み(分割睡眠は件数分) · 色と文字=表示タイプ(なし/うと/すや/ぐっ) · 色の帯=狙う週 · 狙○=日ごとの狙い · 紫の線=イベント · 🌕/●=満月・新月の前後</p>
     <p class="small muted">GSD=満月の前後(満月の日と前後1日の計3日)、NMD=新月の前後(新月の日と前後1日の計3日)。${YAMI}=${YAMI_NOTE}イベント</p>
     <div id="calTop" class="small muted cal-more">${from > firstMonth ? '前の月を読み込み中…' : ''}</div>
     <div id="calList">${range(from, lastMonth).map(monthHtml).join('')}</div>
@@ -669,7 +669,7 @@ function viewCalendar(root, id, q) {
         el.style.gridRow = String(spot[0] + 1);
         el.style.gridColumn = `${spot[1]} / ${spot[2] + 1}`;
       }
-      // NMD・GSD(公式の回数つきの帯と ●NMD/○GSD の札)は、狙う週の札・イベントの帯より下の段に、その日の列だけに置く。
+      // NMD・GSD(公式の回数つきの帯と ●NMD/🌕GSD の札)は、狙う週の札・イベントの帯より下の段に、その日の列だけに置く。
       // 幅に収まらなければ「NMD」「GSD」とだけ書く
       const base = rows.length;
       for (const el of items.filter(x => x.dataset.fixed)) {
@@ -1038,8 +1038,9 @@ function viewMenu(root) {
 }
 
 // ================= 満月(GSD)・新月(NMD)の印 =================
-// 満月・新月の日とその前後1日に付ける利用者の印。色だけに頼らず、○(満月)/●(新月)と文字で示す
-const MOON_ICON = { full: '○', new: '●' };
+// 満月・新月の日とその前後1日に付ける利用者の印。色だけに頼らず、🌕(満月)/●(新月)と文字で示す
+// 絵文字は端末で形と大きさが変わるので、.emo で行の高さを変えない大きさにそろえる
+const MOON_ICON = { full: '<span class="emo">🌕</span>', new: '●' };
 const MOON_NAME = { full: '満月', new: '新月' };
 const moonSpanLabel = sp => `${MOON_ICON[sp.phase]}${sp.mark} ${Calc.fmtMd(sp.from)}〜${Calc.fmtMd(sp.to)}`;
 const moonTags = (from, to) => Moon.spansBetween(from, to).map(sp => `<span class="moon-tag ${sp.phase}">${moonSpanLabel(sp)}</span>`).join('');

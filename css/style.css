@@ -243,12 +243,15 @@ details.manual[open] > summary { margin-bottom: 8px; }
 .hidden-ev { opacity: .55; }
 .small-h { font-size: .9rem; }
 
-/* 満月(GSD)・新月(NMD)の印。色だけに頼らず ○/● と文字で示す */
+/* 満月(GSD)・新月(NMD)の印。色だけに頼らず 🌕/● と文字で示す */
+/* 絵文字(🌕):端末ごとの絵文字フォントで描き、行の高さを押し広げない大きさにする */
+.emo { font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; font-weight: 400; font-size: .95em; line-height: 1; vertical-align: -.08em; margin-right: 1px; }
 .moon-tag { display: inline-block; font-size: .68rem; font-weight: 700; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); white-space: nowrap; }
 .moon-tag.full { border-color: #c9a227; }
 .moon-tag.new { border-color: #6b7280; }
 .cal-days button.day .moon { position: absolute; top: 2px; left: 4px; font-size: .62rem; line-height: 1.2; color: var(--muted); }
-.cal-days button.day .moon.full { color: #b8901a; }
+.cal-days button.day .moon.full { color: #b8901a; font-size: .66rem; }
+.cal-days button.day .moon.full:not(.exact) { opacity: .6; } /* 前後の日は薄く、満月の当日はそのまま */
 .cal-days button.day .moon.exact { color: var(--ink); font-weight: 700; } /* 満月・新月の当日は濃く */
 .cal-days button.day .d { margin-top: 6px; }
 /* マスの下の紫の線(イベント)とタイプの札が重ならないよう、下に余白をとる(分割睡眠で2件あっても欠けない) */
