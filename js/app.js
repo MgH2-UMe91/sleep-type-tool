@@ -216,7 +216,6 @@ function viewHome(root) {
   const today = tonightYmd();
   const s = Store.get().settings;
   const plan = Calc.planFor(today);
-  const weekEvents = Events.forWeek(mondayOf(today));
   const missing = Calc.missingDays(today);
   const recs = Store.records();
   const lastExp = Store.get().lastExportAt;
@@ -242,13 +241,6 @@ function viewHome(root) {
     ${plan.kind === 'unset' ? '<a class="btn" href="#targets">狙う週を決める</a>' : '<p class="small"><a href="#targets">狙う週を決める・変える</a></p>'}
   </section>
   ${plan.kind === 'prep' || plan.kind === 'usual' ? windowCard(today) : ''}
-  ${(() => {
-    const ws = mondayOf(today), sp = Moon.spansBetween(ws, addDays(ws, 13));
-    return sp.length ? `<section class="card"><h2 class="small-h">今週・来週の GSD / NMD</h2>
-      <div class="stack">${sp.map(x => `<p class="small"><span class="moon-tag ${x.phase}">${moonSpanLabel(x)}</span> ${MOON_NAME[x.phase]} ${fmtDate(x.center)} ${x.time}</p>`).join('')}</div></section>` : '';
-  })()}
-  ${weekEvents.length ? `<section class="card"><h2 class="small-h">今週のイベント</h2>${eventListHtml(weekEvents, true)}</section>` : ''}
-  ${needBackup ? `<section class="msg warn">${lastExp ? `最後のバックアップから${expDays}日たちました。` : 'まだバックアップを書き出していません。'}ブラウザのデータを消すと記録も消えます。<a href="#data">データ管理で書き出す</a></section>` : ''}
   ${missing.length ? `<section class="card"><h2>未入力の日</h2><p class="small muted">直近14日で記録がない日</p>
     <div class="row">${missing.map(d => `<a class="btn ghost small" href="#input?date=${d}">${fmtDate(d)}</a>`).join('')}</div></section>` : ''}
   <section class="card">
@@ -263,7 +255,8 @@ function viewHome(root) {
   <div class="grid2">
     <a class="btn" href="#input">記録を入力</a>
     <a class="btn ghost" href="#calendar">カレンダー</a>
-  </div>`;
+  </div>
+  ${needBackup ? `<section class="msg warn">${lastExp ? `最後のバックアップから${expDays}日たちました。` : 'まだバックアップを書き出していません。'}ブラウザのデータを消すと記録も消えます。<a href="#data">データ管理で書き出す</a></section>` : ''}`;
   const nx = $('#browserNoteX', root);
   if (nx) nx.onclick = () => {
     browserNoteClosed = true;
@@ -1203,7 +1196,7 @@ const moonTags = (from, to) => Moon.spansBetween(from, to).map(sp => `<span clas
 
 // ================= 公式イベント =================
 // イベントの一覧(タイトル・期間・公式記事へのリンクだけ。公式の本文・画像は出さない)
-function eventListHtml(evs, compact = false) {
+function eventListHtml(evs) {
   if (!evs.length) return '';
   return `<div class="stack ev-list">${evs.map(e => `<div class="ev-item">
     <div><b>${esc(Events.displayTitle(e.title))}</b> <span class="small muted">${Events.periodLabel(e)}</span></div>
@@ -1211,7 +1204,7 @@ function eventListHtml(evs, compact = false) {
       ${Events.isYami(e) ? `<span class="ev-tag free" title="${YAMI_NOTE}イベント">${YAMI}</span>` : ''}
       ${e.boostTypes.map(k => `<span class="tchip t-${k}">${TYPE_LABEL[k]}が有利</span>`).join('')}
       ${e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">公式のお知らせ</a>` : ''}
-      ${!compact && e.source !== 'official' ? `<span class="muted">${e.source === 'manual' ? '手入力' : '手で修正'}</span>` : ''}
+      ${e.source !== 'official' ? `<span class="muted">${e.source === 'manual' ? '手入力' : '手で修正'}</span>` : ''}
     </div></div>`).join('')}</div>`;
 }
 
