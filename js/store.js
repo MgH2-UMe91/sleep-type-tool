@@ -53,6 +53,19 @@ const isSafeId = s => (typeof s === 'string' || typeof s === 'number') && /^[A-Z
 const isIsoTime = s => typeof s === 'string' && s.length <= 40 && /^\d{4}-\d{2}-\d{2}/.test(s) && !isNaN(Date.parse(s));
 // リンクにしてよいURLか(http/https だけ。javascript: などは不可)
 const isHttpUrl = s => typeof s === 'string' && s.length <= 500 && /^https?:\/\/[^\s"'<>]+$/i.test(s);
+// 入力された時刻を「HH:MM」(0:00〜23:59)にそろえる。読めなければ null。
+// ゲームは深夜を 24〜27時台で表すことがあるので、24:00〜27:59 は 0:00〜3:59 にする(日付はその夜のまま)。
+// 「2510」「1:10」「２５：１０」のような書き方も受け付ける。28時以降・60分以上は null
+const normHm = s => {
+  const t = String(s == null ? '' : s).trim().replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/[：]/g, ':');
+  const m = t.match(/^(\d{1,2}):?(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]), mi = Number(m[2]);
+  if (h >= 28 || mi >= 60) return null;
+  return `${pad2(h % 24)}:${pad2(mi)}`;
+};
+// 24〜27時台の書き方か(確認の表示用)
+const isLateHm = s => { const m = String(s || '').trim().match(/^(\d{1,2})/); return !!m && Number(m[1]) >= 24 && normHm(s) !== null; };
 const hmToMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
 const minToHm = n => `${Math.floor(n / 60)}:${pad2(n % 60)}`;
 const nowIso = () => new Date().toISOString();
@@ -113,7 +126,7 @@ const Store = (() => {
     const blank = v => v === '' || v === null || v === undefined;
     // 空なら null、整数でなければ NaN(=不正)
     const int = v => blank(v) ? null : (Number.isInteger(Number(v)) ? Number(v) : NaN);
-    const time = v => blank(v) ? '' : (isHm(String(v).trim()) ? String(v).trim().padStart(5, '0') : null);
+    const time = v => blank(v) ? '' : normHm(v); // 24〜27時台は 0〜3時台にそろえる
     const bedTime = time(r.bedTime), wakeTime = time(r.wakeTime), sleepMin = int(r.sleepMin);
     if (bedTime === null || wakeTime === null) return null;
     if (Number.isNaN(sleepMin) || (sleepMin !== null && (sleepMin <= 0 || sleepMin >= 1440))) return null;

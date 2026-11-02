@@ -275,8 +275,9 @@ const Calc = (() => {
 
   // 睡眠時間(分)を就寝・起床から計算。日付をまたぐので24時間で折り返す
   function spanMin(bed, wake) {
-    if (!isHm(bed) || !isHm(wake)) return null;
-    return ((hmToMin(wake) - hmToMin(bed)) % 1440 + 1440) % 1440;
+    const b = normHm(bed), w = normHm(wake); // 24〜27時台も受け付ける。日付をまたぐので24時間で折り返す
+    if (!b || !w) return null;
+    return ((hmToMin(w) - hmToMin(b)) % 1440 + 1440) % 1440;
   }
 
   return { pick, stats, averageAt, reliability, tendency, tendencyAt, suspicious, estimateType, planFor, windowDays, perDayAt, upcomingTargets,

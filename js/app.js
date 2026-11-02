@@ -291,6 +291,17 @@ function viewHome(root) {
   };
 }
 
+// 時刻の入力欄を、入力を終えたときに「HH:MM」へ直す。24〜27時台は 0〜3時台にして、その旨を hint に出す。読めなければ強調
+function fixTimeInput(el, hint) {
+  const raw = el.value.trim();
+  if (!raw) { el.classList.remove('bad'); return; }
+  const n = normHm(raw);
+  el.classList.toggle('bad', !n);
+  if (!n) { if (hint) hint.textContent = `「${raw}」は時刻として読めません。23:30 や 2330 のように入れてください(24〜27時台も可)。`; return; }
+  if (hint && isLateHm(raw)) hint.textContent = `${raw} は ${n}(その夜の深夜)として保存します。日付はそのままです。`;
+  el.value = n;
+}
+
 // 読み取りの詳細(折りたたみ)。実機で読めなかったとき、この部分のスクショを送ってもらえば原因を調べられる
 function debugDetails(res) {
   const el = document.createElement('details');
@@ -399,9 +410,10 @@ function viewInput(root, id, q) {
     <label class="f">日付(ゲームの表示)<input type="date" name="date" value="${esc(r.date)}" required></label>
     <p class="small muted">分割睡眠で同じ日付にもう1回寝たときは、同じ日付でもう1件入れてください(就寝時刻で区別します)。</p>
     <div class="grid2">
-      <label class="f">就寝<input type="time" name="bedTime" value="${esc(r.bedTime)}"></label>
-      <label class="f">起床<input type="time" name="wakeTime" value="${esc(r.wakeTime)}"></label>
+      <label class="f">就寝<input type="text" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="23:30" name="bedTime" value="${esc(r.bedTime)}"></label>
+      <label class="f">起床<input type="text" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="23:30" name="wakeTime" value="${esc(r.wakeTime)}"></label>
     </div>
+    <p class="small muted" id="timeHint">時刻は 23:30 や 2330 のように。ゲームの 24〜27時台(例 25:10)もそのまま入れられます。</p>
     <div class="stack">
       <div class="grid2">
         <label class="f">睡眠時間(時間)<input type="number" inputmode="numeric" min="0" max="23" name="sleepH"></label>
@@ -442,16 +454,17 @@ function viewInput(root, id, q) {
   setSleep(r.sleepMin);
   f.bedTime.addEventListener('input', syncSleep);
   f.wakeTime.addEventListener('input', syncSleep);
+  [f.bedTime, f.wakeTime].forEach(el => el.addEventListener('change', () => fixTimeInput(el, $('#timeHint', root))));
   [f.sleepH, f.sleepM].forEach(el => el.addEventListener('input', () => { sleepEdited = true; syncSleep(); }));
   $('#recalc', root).onclick = () => { sleepEdited = false; syncSleep(); };
   syncSleep();
   if (editing) pct.set({ uto: r.utoPct, suya: r.suyaPct, gus: r.gusPct }, r.autoField); else pct.recompute();
 
-  const current = () => ({ date: f.date.value, bedTime: f.bedTime.value, wakeTime: f.wakeTime.value, sleepMin: readSleep(), ...pct.read().vals, type: f.type.value });
+  const current = () => ({ date: f.date.value, bedTime: normHm(f.bedTime.value) || '', wakeTime: normHm(f.wakeTime.value) || '', sleepMin: readSleep(), ...pct.read().vals, type: f.type.value });
 
   // 強調した欄は、手で直したら元に戻す
   f.addEventListener('input', e => { if (!e.target.dataset.pct) e.target.classList.remove('bad'); });
-  f.addEventListener('change', e => { if (!e.target.dataset.pct) e.target.classList.remove('bad'); });
+  f.addEventListener('change', e => { if (!e.target.dataset.pct && e.target !== f.bedTime && e.target !== f.wakeTime) e.target.classList.remove('bad'); }); // 時刻は fixTimeInput が判定
 
   f.onsubmit = async e => {
     e.preventDefault();
@@ -460,6 +473,7 @@ function viewInput(root, id, q) {
     const errs = [];
     if (!isYmd(f.date.value)) errs.push('日付を入れてください');
     if (!p.ok) errs.push('割合を確認してください(3つそろって合計100)');
+    for (const [el, name] of [[f.bedTime, '就寝'], [f.wakeTime, '起床']]) if (el.value.trim() && !normHm(el.value)) { errs.push(`${name}時刻を確認してください(23:30 のように。24〜27時台も可)`); el.classList.add('bad'); }
     const sm = readSleep();
     const okPart = (v, max) => v === '' || (Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= max);
     if (sm != null && (!okPart(f.sleepH.value, 23) || !okPart(f.sleepM.value, 59) || sm <= 0 || sm >= 1440)) errs.push('睡眠時間を確認してください(時間は0〜23、分は0〜59の整数)');
@@ -527,8 +541,8 @@ function mountShots(root) {
       <div class="grid2">
         <label class="f">日付<input type="date" data-k="date" value="${esc(v.date || '')}"></label>
         <label class="f">睡眠時間(H:MM)<input type="text" inputmode="numeric" data-k="sleep" value="${v.sleepMin != null ? minToHm(v.sleepMin) : ''}" placeholder="7:41"></label>
-        <label class="f">就寝<input type="time" data-k="bedTime" value="${esc(v.bedTime || '')}"></label>
-        <label class="f">起床<input type="time" data-k="wakeTime" value="${esc(v.wakeTime || '')}"></label>
+        <label class="f">就寝<input type="text" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="23:30" data-k="bedTime" value="${esc(v.bedTime || '')}"></label>
+        <label class="f">起床<input type="text" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="23:30" data-k="wakeTime" value="${esc(v.wakeTime || '')}"></label>
       </div>
       <div class="grid3">${KINDS.map(k => `<label class="f"><span class="pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span><input type="number" inputmode="numeric" data-k="${PCT_KEY[k]}" value="${v[PCT_KEY[k]] ?? ''}"></label>`).join('')}</div>
       <label class="f">表示タイプ<select data-k="type">${typeOptions(v.type)}</select></label>
@@ -605,11 +619,15 @@ function mountShots(root) {
       it.v.sleepMin = min && min < 1440 ? min : null;
       it.v.sleepBad = t !== '' && it.v.sleepMin === null;
     }
+    else if (k === 'bedTime' || k === 'wakeTime') it.v[k] = normHm(el.value) || ''; // 24〜27時台も受け付ける。読めない形は空(要確認)
     else if (k in PCT_KEY || /Pct$/.test(k)) it.v[k] = el.value === '' ? null : Number(el.value);
     else it.v[k] = el.value;
     if (k === 'type') box.querySelector('.tchip').outerHTML = tchip(it.v.type);
     refresh();
   });
+
+  // 時刻欄は入力を終えたら 0:00〜23:59 の形に直して見せる
+  $('#results', root).addEventListener('change', e => { if (e.target.dataset.k === 'bedTime' || e.target.dataset.k === 'wakeTime') fixTimeInput(e.target); });
 
   // まとめて保存。1件ずつ保存し、失敗した件は要確認として一覧に残す。保存できた件は一覧から外す(二重保存しない)
   $('#saveAll', root).onclick = async () => {

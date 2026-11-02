@@ -285,7 +285,8 @@ const Ocr = (() => {
       if (cvWake) keep('起床', cvWake, rawWake);
       const s = rawSleep.match(/(\d{1,2})時間(\d{1,2})分/) || rawSleep.match(/(\d{1,2})\D+(\d{1,2})/);
       res.sleepMin = s && Number(s[2]) < 60 ? Number(s[1]) * 60 + Number(s[2]) : null;
-      const hhmm = (t) => { const d = t.replace(/\D/g, ''); if (d.length < 3) return null; const v = d.slice(-4).padStart(4, '0'); return Number(v.slice(0, 2)) < 24 && Number(v.slice(2)) < 60 ? `${v.slice(0, 2)}:${v.slice(2)}` : null; };
+      // 24〜27時台(ゲームの深夜の表し方)も normHm で 0〜3時台にそろえる
+      const hhmm = (t) => { const d = t.replace(/\D/g, ''); if (d.length < 3) return null; return normHm(d.slice(-4)); };
       res.bedTime = hhmm(rawBed);
       res.wakeTime = hhmm(rawWake);
       // 整合チェック: 睡眠時間と(起床−就寝)の差が10分以内か
