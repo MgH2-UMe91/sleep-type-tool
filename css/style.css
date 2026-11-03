@@ -141,6 +141,8 @@ details.fold > summary::-webkit-details-marker { display: none; }
 details.fold > summary::before { content: "▸"; color: var(--accent); }
 details.fold[open] > summary::before { content: "▾"; }
 details.fold > summary h2 { margin: 0; }
+/* ホームの「予報について」の説明 */
+.about-list { margin: 8px 0 0; padding-left: 1.2em; display: grid; gap: 6px; }
 .rec-list { max-height: 18rem; overflow-y: auto; border-top: 1px solid var(--line); }
 .rec-line { display: flex; align-items: center; gap: 6px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: .8rem; white-space: nowrap; }
 .rec-line .tl { font-size: .65rem; font-weight: 700; padding: 0 4px; border-radius: 4px; color: var(--chip-ink); }

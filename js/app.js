@@ -174,7 +174,8 @@ function compareTable(refDate) {
 }
 
 // 狙い週の窓(推定):次の狙いの直前30回に、今の記録のどれが残り、どれが抜けるか。平均の見込みを今日と比べる
-function windowCard(today) {
+// compact: ホーム用。窓の期間・残る件数・帯・見込みの一文だけ(抜ける記録の一覧と注記は統計・狙い設定の画面に出す)
+function windowCard(today, compact = false) {
   const x = Calc.upcomingTargets(today)[0];
   if (!x) return '';
   const k = x.k, w = Calc.windowAt(x.start, today);
@@ -190,7 +191,7 @@ function windowCard(today) {
     <h2 class="small-h">狙い週の窓(推定)</h2>
     <p class="small"><b>${x.week ? `${Calc.fmtMd(x.start)}週` : Calc.fmtMd(x.start)}(${TYPE_LABEL[k]}狙い)</b>の直前30回 = ${Calc.fmtMd(w.from)}〜${Calc.fmtMd(w.to)}。
       いまの記録で残るのは${w.stay.length}件、これから入る夜は約${w.future}件。</p>
-    ${drops.length ? `<details class="small"><summary>窓から抜ける記録 ${drops.length}件${imp ? `(抜ける分の影響:${KINDS.map(t => `${TYPE_LABEL[t]} ${sign(imp[t])}pt`).join(' / ')})` : ''}</summary>
+    ${compact ? '' : drops.length ? `<details class="small"><summary>窓から抜ける記録 ${drops.length}件${imp ? `(抜ける分の影響:${KINDS.map(t => `${TYPE_LABEL[t]} ${sign(imp[t])}pt`).join(' / ')})` : ''}</summary>
       <div class="row drops">${drops.map(r => `<span class="drop">${Calc.fmtMd(r.date)} ${r.type ? `<span class="tl t-${r.type}">${SHORT[r.type]}</span>` : ''}<span class="num muted">${r.utoPct}/${r.suyaPct}/${r.gusPct}</span></span>`).join('')}</div></details>`
       : `<p class="small muted">${w.cur.length < RANGE_N && !drops.length ? 'まだ30件たまっていないので、狙い週までに抜ける記録はありません。' : '抜ける記録はありません。'}</p>`}
     <div class="avg3 avg3-legend small" aria-hidden="true">${KINDS.map(t => `<span class="pct-label">${pctDot(t)}${TYPE_LABEL[t]}</span>`).join('')}</div>
@@ -198,7 +199,8 @@ function windowCard(today) {
     ${bar('狙い週時点 A:普段どおり', A)}
     ${c ? bar(`狙い週時点 B:${TYPE_LABEL[c]}を意識`, B) : ''}
     ${w.future && c ? `<p class="small">残り約${w.future}夜で${TYPE_LABEL[c]}を意識すれば、${TYPE_LABEL[k]}の平均は約${B[k].mean.toFixed(1)}%まで${B[k].mean <= now[k]?.mean ? '下がる' : 'になる'}見込みです。</p>` : ''}
-    <p class="small muted">ゲームの内部の判定は非公開のため、すべて推定です。これからの夜は、A=あなたの全期間の平均、B=そこから${TYPE_LABEL[c] || '反対側'}へ${PREP_SHIFT_PT}ポイント寄せた値として計算しています。</p>
+    ${compact ? `<p class="small muted">推定です。窓から抜ける記録は<a href="#stats">くわしい統計</a>で見られます。</p>`
+      : `<p class="small muted">ゲームの内部の判定は非公開のため、すべて推定です。これからの夜は、A=あなたの全期間の平均、B=そこから${TYPE_LABEL[c] || '反対側'}へ${PREP_SHIFT_PT}ポイント寄せた値として計算しています。</p>`}
   </section>`;
 }
 
@@ -211,7 +213,22 @@ function forecastHead(when, f, uLabel, vs) {
   return `<p class="likely-big">${when}は${f.strength === 'strong' ? `<b>${name}</b>が出やすそう` : `<b>やや${name}寄り</b>`}</p>
     <p class="small muted">普通に寝た場合の推定。${uLabel}の平均が${vs}を${sign(f.diffs[t])}ポイント上回っています${f.strength === 'weak' ? `(${FORECAST_STRONG_PT}ポイント未満なので弱め)` : ''}。</p>`;
 }
-const forecastNote = () => `差が${FORECAST_STRONG_PT}ポイント以上で「出やすい」、${FORECAST_WEAK_PT}〜${FORECAST_STRONG_PT}ポイント未満で「やや◯◯寄り」、${FORECAST_WEAK_PT}ポイント未満ならとくちょうなし(しきい値は仮)。過去の記録での的中率は約${FORECAST_HIT_PCT}%(推定)。`;
+// 予報カードに残す的中率の一行
+const forecastHit = () => `<p class="small muted">過去の記録での的中率は約${FORECAST_HIT_PCT}%(推定)。くわしくは下の「予報について」</p>`;
+// 今夜・来週の予報の説明をまとめた折りたたみ(初めは閉じる。開閉は保存)
+function forecastAbout() {
+  if (!Store.records().length) return '';
+  return `<details class="card fold" data-fold="forecastAbout" ${foldOpen('forecastAbout') ? 'open' : ''}><summary><h2 class="small-h">予報について</h2></summary>
+    <ul class="small about-list">
+      <li><b>考え方</b>:タイプは、その夜の割合が直近30回の平均より目立って多いものになる(推定)。普通に寝たときの割合を「普段の寝方」(直近100回の平均。集計外を除き、100件に満たなければ全期間)とみなし、基準と比べます。差がプラスのタイプほど、普通に寝たときに基準を上回りやすく、出やすいと考えます。</li>
+      <li><b>基準</b>:今夜は直近30回の平均。来週は、来週月曜の前日までの直近30回の見込み平均。</li>
+      <li><b>言い方</b>:一番大きいプラスの差が${FORECAST_STRONG_PT}ポイント以上で「出やすい」、${FORECAST_WEAK_PT}〜${FORECAST_STRONG_PT}ポイント未満で「やや◯◯寄り」、${FORECAST_WEAK_PT}ポイント未満なら「とくちょうなし」(しきい値は仮)。</li>
+      <li><b>的中率</b>:過去の記録で試すと約${FORECAST_HIT_PCT}%(推定)。</li>
+      <li><b>来週の見込みの埋め方</b>:今週まだ記録していない夜を、A「普段どおり寝る」=あなたの全期間の平均、B「来週の狙いに備える」=そこから狙うタイプを${PREP_SHIFT_PT}ポイント控えめにし、反対側へ寄せた仮の値で埋めて試算します。狙い週の窓カードの A/B も同じ埋め方です。</li>
+      <li><b>確定 N/30回</b>:来週の基準の30回のうち、実際の記録で埋まっている回数。残りがなければ「確定」、残り1夜以下なら「ほぼ確定」、それ以外は「まだ見込み」。記録が増えるほど確定に近づきます。</li>
+      <li>ゲームの内部の判定は非公開のため、すべて推定です。</li>
+    </ul></details>`;
+}
 
 // ホーム:今夜の睡眠タイプ予報(推定)。直近30回の平均(ゲームの基準)と直近100回の平均(普段の寝方)の差で見る
 function likelyCard(today, plan) {
@@ -236,7 +253,7 @@ function likelyCard(today, plan) {
   return `<section class="card likely">
     <h2 class="small-h">🌙 今夜の睡眠タイプ予報</h2>
     ${body}
-    <p class="small muted">差がプラスのタイプほど、普通に寝たときに直近30回の平均を上回りやすく、出やすいと考えます。${forecastNote()}ゲームの内部の判定は非公開のため推定です。</p>
+    ${lt.enough ? forecastHit() : ''}
   </section>`;
 }
 
@@ -276,7 +293,7 @@ function nextWeekCard(today, plan) {
     <h2 class="small-h">🗓 来週の睡眠タイプ予報</h2>
     ${seg}
     ${body}
-    <p class="small muted">今週のまだ記録していない夜は、${nextMode === 'A' ? 'あなたの全期間の平均' : `全期間の平均から${PREP_SHIFT_PT}ポイント寄せた仮の値`}で埋めて試算しています。記録が増えるほど確定に近づきます。${forecastNote()}ゲームの内部の判定は非公開のため推定です。</p>
+    ${f.enough ? forecastHit() : ''}
   </section>`;
 }
 function bindNextWeek(root, today, plan) {
@@ -323,7 +340,7 @@ function viewHome(root) {
     ${plan.more ? `<p class="small muted">${esc(plan.more)}</p>` : ''}
     ${plan.kind === 'unset' ? '<a class="btn" href="#targets">狙う週を決める</a>' : '<p class="small"><a href="#targets">狙う週を決める・変える</a></p>'}
   </section>
-  ${plan.kind === 'prep' || plan.kind === 'usual' ? windowCard(today) : ''}
+  ${plan.kind === 'prep' || plan.kind === 'usual' ? windowCard(today, true) : ''}
   ${missing.length ? `<section class="card"><h2>未入力の日</h2><p class="small muted">直近14日で記録がない日</p>
     <div class="row">${missing.map(d => `<a class="btn ghost small" href="#input?date=${d}">${fmtDate(d)}</a>`).join('')}</div></section>` : ''}
   <section class="card">
@@ -333,12 +350,14 @@ function viewHome(root) {
   </section>
   ${likelyCard(today, plan)}
   ${nextWeekCard(today, plan)}
+  ${forecastAbout()}
   <div class="grid2">
     <a class="btn" href="#input">記録を入力</a>
     <a class="btn ghost" href="#calendar">カレンダー</a>
   </div>
   ${needBackup ? `<section class="msg warn">${lastExp ? `最後のバックアップから${expDays}日たちました。` : 'まだバックアップを書き出していません。'}ブラウザのデータを消すと記録も消えます。<a href="#data">データ管理で書き出す</a></section>` : ''}`;
   bindNextWeek(root, today, plan);
+  $$('details[data-fold]', root).forEach(el => el.addEventListener('toggle', () => setFoldOpen(el.dataset.fold, el.open)));
   const nx = $('#browserNoteX', root);
   if (nx) nx.onclick = () => {
     browserNoteClosed = true;
