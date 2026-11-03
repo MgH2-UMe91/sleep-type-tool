@@ -801,6 +801,7 @@ function viewCalendar(root, id, q) {
     for (let ws = mondayOf(first); ymOf(ws) <= ym; ws = addDays(ws, 7)) {
       // 週の行。狙う週なら色と文字の印を付ける
       const wt = d.weekTargets.find(t => t.weekStart === ws && KINDS.includes(t.target));
+      const wpast = addDays(ws, 6) < today; // 終わった週(日曜が今日より前)の狙いは薄く出す
       let cells = '';
       for (let i = 0; i < 7; i++) {
         const day = addDays(ws, i);
@@ -816,7 +817,7 @@ function viewCalendar(root, id, q) {
           <span class="d">${Number(day.slice(8))}</span>
           ${rs.some(r => r.excluded) ? '<span class="exm">集計外</span>' : ''}
           ${rs.map(r => `<span class="tl ${r.type ? 't-' + r.type : 't-empty'}">${SHORT[r.type]}</span>`).join('')}
-          ${dt ? `<span class="tg">狙${dt.target === 'none' ? 'なし' : SHORT[dt.target]}</span>` : ''}
+          ${dt ? `<span class="tg ${day < today ? 'past' : ''}">狙${dt.target === 'none' ? 'なし' : SHORT[dt.target]}</span>` : ''}
         </button>`;
       }
       // この週(この月の分)に開催中のイベント名を短くして並べる
@@ -833,7 +834,7 @@ function viewCalendar(root, id, q) {
       const col = day => daysBetween(ws, day) + 1;
       const clip = (a, b) => [a < wfrom ? wfrom : a, b > wto ? wto : b];
       const bars = [];
-      if (wt) bars.push(`<span class="bar wk-tag t-${wt.target}" data-s="1" data-e="1">${TYPE_LABEL[wt.target]}を狙う週</span>`);
+      if (wt) bars.push(`<span class="bar wk-tag t-${wt.target} ${wpast ? 'past' : ''}" data-s="1" data-e="1">${TYPE_LABEL[wt.target]}を狙う週</span>`);
       for (const e of wevs) {
         const [a, b] = clip(e.from, e.to);
         const yami = Events.isYami(e), md = Events.isMoonDay(e);
@@ -849,7 +850,7 @@ function viewCalendar(root, id, q) {
         bars.push(`<button type="button" class="bar moon-bar ${sp.phase}" data-s="${col(a)}" data-e="${col(b)}" data-fixed="1" data-short="${sp.mark}"
           data-full="${sp.mark}(${MOON_NAME[sp.phase]}の前後)" data-period="${esc(`${Calc.fmtMd(sp.from)}〜${Calc.fmtMd(sp.to)}(${MOON_NAME[sp.phase]} ${fmtDate(sp.center)} ${sp.time})`)}">${MOON_ICON[sp.phase]}${sp.mark}</button>`);
       }
-      html += `<div class="cal-week ${wt ? 'aim k-' + wt.target : ''}">
+      html += `<div class="cal-week ${wt ? 'aim k-' + wt.target + (wpast ? ' past' : '') : ''}">
         ${bars.length ? `<div class="wk-bars">${bars.join('')}</div>` : ''}
         <div class="cal-days">${cells}</div></div>`;
     }

@@ -200,6 +200,10 @@ th { color: var(--muted); font-size: .78rem; font-weight: 700; }
 .cal-week.k-uto { --wk: var(--t-uto); }
 .cal-week.k-suya { --wk: var(--t-suya); }
 .cal-week.k-gus { --wk: var(--t-gus); }
+/* 終わった週の狙い:枠・札・背景を薄く(文字は読める濃さのまま)。記録・イベントの表示はそのまま */
+.cal-week.aim.past { border-color: color-mix(in srgb, var(--wk) 45%, transparent); background: color-mix(in srgb, var(--wk) 4%, transparent); }
+.cal-week .wk-tag.past { background: color-mix(in srgb, var(--wk) 40%, var(--surface)); color: var(--ink); font-weight: 600; }
+.cal-days button.day .tg.past { opacity: .6; }
 .wk-tag { display: inline-block; font-size: .68rem; font-weight: 700; padding: 0 6px; border-radius: 4px; color: var(--chip-ink); margin: 2px 0; }
 .cal-days .day.blank { min-height: 58px; }
 .cal-days button.day {
