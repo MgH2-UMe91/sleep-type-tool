@@ -8,7 +8,7 @@ const TARGET_LABEL = { uto: 'うとうと', suya: 'すやすや', gus: 'ぐっ�
 const RANGE_N = 30;
 // 推定タイプで「平均に近い」とみなす差(ポイント)。根拠のない仮の値
 const NEAR_AVG_PT = 5;
-// 傾向:狙うタイプが出た夜の割合(全期間)がこれ以上なら「普段どおりで十分」と案内する(%)。仮の値
+// 傾向:狙うタイプが出た夜の割合(全期間)がこれ以上なら「普段どおり寝てください」と案内する(%)。仮の値
 const USUAL_RATE_PCT = 40;
 // 傾向を案内に使う最低の件数(タイプのわかる記録)。これ未満では従来の案内にする。仮の値
 const TREND_MIN_N = 10;
@@ -263,15 +263,15 @@ const Calc = (() => {
         const ppct = proj.n ? proj[k].mean.toFixed(1) + '%' : '—';
         const ref = tendencyAt(date, 'all');
         const gap = proj.n && ref.stats.n ? ref.stats[k].mean - proj[k].mean : null;
-        // 全期間の記録で、狙うタイプが普段から出やすいなら、反対側を狙わず普段どおりで十分(推定)
+        // 全期間の記録で、狙うタイプが普段から出やすいなら、反対側を狙わず普段どおり寝ればよい(推定)
         const tr = ref;
         if (gap != null && proj.real > 0 && ref.stats.n >= TREND_MIN_N && gap >= PROJ_USUAL_GAP_PT) {
           plan = { kind: 'usual', type: null, aim: k, next, proj,
-            title: '普段どおりで十分です',
+            title: '普段どおり寝てください',
             reason: `狙い週(${fmtMd(x.start)}〜)の直前30回の見込みでは、${TYPE_LABEL[k]}の平均は${ppct}で、あなたの普段(全期間 ${ref.stats[k].mean.toFixed(1)}%)より${gap.toFixed(1)}ポイント低くなりそうです。普段どおりに寝れば、狙う週に「平均より多い」になりやすい見込みです(推定)。` };
         } else if (tr.typed >= TREND_MIN_N && tr.rate[k] >= USUAL_RATE_PCT) {
           plan = { kind: 'usual', type: null, aim: k, next, proj,
-            title: '普段どおりで十分です',
+            title: '普段どおり寝てください',
             reason: `あなたの記録では、${TYPE_LABEL[k]}が出た夜は全期間で${tr.rate[k].toFixed(0)}%(${tr.counts[k]}/${tr.typed}回・${tr.level})。普段から出やすいので、前の週に反対側を狙わなくても、狙う週に出る見込みがあります(記録から数えた目安・推定)。` };
         } else {
         const c = counterOf(k, avg);
