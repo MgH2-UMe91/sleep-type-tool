@@ -182,6 +182,9 @@ function windowCard(today, compact = false) {
   const A = Calc.projectAverage(x.start, 'A', k, today), B = Calc.projectAverage(x.start, 'B', k, today);
   const now = Calc.stats(w.cur), imp = Calc.abandonImpact(x.start, today);
   const c = B.counter;
+  // 「普段どおり寝てください」のときは、意識しても狙うタイプの平均がどれだけしか下がらないかを伝える
+  const usual = Calc.planFor(today).kind === 'usual';
+  const gain = A.n && B.n ? A[k].mean - B[k].mean : 0;
   const sign = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
   const bar = (label, st) => st && st.n ? `<div class="stack avg3-row"><div class="row avg3-head"><b class="small">${label}</b><span class="small muted">${st.n}件${st.future ? `(うち見込み${st.future})` : ''}</span></div>
     <div class="avgbar" aria-hidden="true">${KINDS.map(t => `<span class="t-${t}" style="width:${st[t].mean}%"></span>`).join('')}</div>
@@ -196,11 +199,12 @@ function windowCard(today, compact = false) {
       : `<p class="small muted">${w.cur.length < RANGE_N && !drops.length ? 'まだ30件たまっていないので、狙い週までに抜ける記録はありません。' : '抜ける記録はありません。'}</p>`}
     <div class="avg3 avg3-legend small" aria-hidden="true">${KINDS.map(t => `<span class="pct-label">${pctDot(t)}${TYPE_LABEL[t]}</span>`).join('')}</div>
     ${bar('今日の直近30回', now)}
-    ${bar('狙い週時点 A:普段どおり', A)}
-    ${c ? bar(`狙い週時点 B:${TYPE_LABEL[c]}を意識`, B) : ''}
-    ${w.future && c ? `<p class="small">残り約${w.future}夜で${TYPE_LABEL[c]}を意識すれば、${TYPE_LABEL[k]}の平均は約${B[k].mean.toFixed(1)}%まで${B[k].mean <= now[k]?.mean ? '下がる' : 'になる'}見込みです。</p>` : ''}
+    ${bar('狙い週時点 普段どおり', A)}
+    ${c ? bar(`狙い週時点 ${TYPE_LABEL[c]}を意識`, B) : ''}
+    ${w.future && c && usual ? `<p class="small">${gain < 0.5 ? '意識してもほとんど変わりません。' : `意識しても、下がるのは約${gain.toFixed(1)}ptだけです。`}普段どおりで大丈夫です。</p>`
+      : w.future && c ? `<p class="small">残り約${w.future}夜で${TYPE_LABEL[c]}を意識すれば、${TYPE_LABEL[k]}の平均は約${B[k].mean.toFixed(1)}%まで${B[k].mean <= now[k]?.mean ? '下がる' : 'になる'}見込みです。</p>` : ''}
     ${compact ? `<p class="small muted">推定です。窓から抜ける記録は<a href="#stats">くわしい統計</a>で見られます。</p>`
-      : `<p class="small muted">ゲームの内部の判定は非公開のため、すべて推定です。これからの夜は、A=あなたの全期間の平均、B=そこから${TYPE_LABEL[c] || '反対側'}へ${PREP_SHIFT_PT}ポイント寄せた値として計算しています。</p>`}
+      : `<p class="small muted">ゲームの内部の判定は非公開のため、すべて推定です。これからの夜は、「普段どおり」=あなたの全期間の平均、「${TYPE_LABEL[c] || '反対側'}を意識」=そこから${TYPE_LABEL[c] || '反対側'}へ${PREP_SHIFT_PT}ポイント寄せた値として計算しています。</p>`}
   </section>`;
 }
 
@@ -224,7 +228,7 @@ function forecastAbout() {
       <li><b>基準</b>:今夜は直近30回の平均。来週は、来週月曜の前日までの直近30回の見込み平均。</li>
       <li><b>言い方</b>:一番大きいプラスの差が${FORECAST_STRONG_PT}ポイント以上で「出やすい」、${FORECAST_WEAK_PT}〜${FORECAST_STRONG_PT}ポイント未満で「やや◯◯寄り」、${FORECAST_WEAK_PT}ポイント未満なら「とくちょうなし」(しきい値は仮)。</li>
       <li><b>的中率</b>:過去の記録で試すと約${FORECAST_HIT_PCT}%(推定)。</li>
-      <li><b>来週の見込みの埋め方</b>:今週まだ記録していない夜を、A「普段どおり寝る」=あなたの全期間の平均、B「来週の狙いに備える」=そこから狙うタイプを${PREP_SHIFT_PT}ポイント控えめにし、反対側へ寄せた仮の値で埋めて試算します。狙い週の窓カードの A/B も同じ埋め方です。</li>
+      <li><b>来週の見込みの埋め方</b>:今週まだ記録していない夜を、A「普段どおり寝る」=あなたの全期間の平均、B「来週の狙いに備える」=そこから狙うタイプを${PREP_SHIFT_PT}ポイント控えめにし、反対側へ寄せた仮の値で埋めて試算します。狙い週の窓カードの「普段どおり」「◯◯を意識」も同じ埋め方です。</li>
       <li><b>確定 N/30回</b>:来週の基準の30回のうち、実際の記録で埋まっている回数。残りがなければ「確定」、残り1夜以下なら「ほぼ確定」、それ以外は「まだ見込み」。記録が増えるほど確定に近づきます。</li>
       <li>ゲームの内部の判定は非公開のため、すべて推定です。</li>
     </ul></details>`;
