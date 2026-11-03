@@ -1040,7 +1040,7 @@ function viewTargets(root) {
   function render() {
     const d = Store.get();
     let weeks = '';
-    for (let w = -1; w <= 12; w++) {
+    for (let w = 0; w <= 12; w++) {
       const ws = addDays(thisWeek, w * 7);
       const wt = d.weekTargets.find(t => t.weekStart === ws);
       const aim = wt && KINDS.includes(wt.target) ? wt.target : '';
