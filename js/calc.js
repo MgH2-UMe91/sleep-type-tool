@@ -8,7 +8,7 @@ const TARGET_LABEL = { uto: 'うとうと', suya: 'すやすや', gus: 'ぐっ�
 const RANGE_N = 30;
 // 推定タイプで「平均に近い」とみなす差(ポイント)。根拠のない仮の値
 const NEAR_AVG_PT = 5;
-// 傾向:狙うタイプが出た夜の割合(全期間)がこれ以上なら「普段通り寝てください」と案内する(%)。仮の値
+// 傾向:狙うタイプが出た夜の割合(全期間)がこれ以上なら「普段どおり寝る」と案内する(%)。仮の値
 const USUAL_RATE_PCT = 40;
 // 傾向を案内に使う最低の件数(タイプのわかる記録)。これ未満では従来の案内にする。仮の値
 const TREND_MIN_N = 10;
@@ -16,7 +16,7 @@ const TREND_MIN_N = 10;
 const TREND_PERIODS = { r30: 30, r100: 100, all: null };
 // 狙い週の窓の見込み:B「反対側を意識」で、これからの夜の反対側の割合を普段の平均から何ポイント寄せるとみなすか。仮の値
 const PREP_SHIFT_PT = 10;
-// 狙い週時点の見込み平均で、狙うタイプが全期間の平均よりこれだけ(ポイント)低ければ、普段通りでも狙い週に目立ちやすいとみなす。仮の値
+// 狙い週時点の見込み平均で、狙うタイプが全期間の平均よりこれだけ(ポイント)低ければ、普段どおりでも狙い週に目立ちやすいとみなす。仮の値
 const PROJ_USUAL_GAP_PT = 5;
 // 期間の比較で「差が大きい」と印を付ける差(ポイント)。直近30回と比べる。仮の値
 const COMPARE_DIFF_PT = 5;
@@ -120,7 +120,7 @@ const Calc = (() => {
   }
 
   // 来週の睡眠タイプ予報(推定)。来週月曜 S の前日までの直近30回(windowAt)の見込み平均を基準に、普段の寝方(likelyTonight と同じ直近100回)と比べる。
-  // 今週の未記録の夜は projectAverage と同じ埋め方:A=普段通り(全期間の平均)/ B=aim を来週狙う準備(aim を控えめに、反対側へ PREP_SHIFT_PT 寄せる)。
+  // 今週の未記録の夜は projectAverage と同じ埋め方:A=普段どおり(全期間の平均)/ B=aim を来週狙う準備(aim を控えめに、反対側へ PREP_SHIFT_PT 寄せる)。
   // 差は今夜の予報と同じ定義、言い方も同じ forecastGrade
   function nextWeekForecast(today, mode = 'A', aim = null) {
     const dow = parseYmd(today).getDay();
@@ -186,7 +186,7 @@ const Calc = (() => {
     return { S, today, cur, stay, drop, nights, future, perDay, from, to: addDays(S, -1) };
   }
 
-  // これからの夜を埋める割合。A=普段通り(全期間の平均)/ B=反対側を意識(反対側に PREP_SHIFT_PT 寄せる)
+  // これからの夜を埋める割合。A=普段どおり(全期間の平均)/ B=反対側を意識(反対側に PREP_SHIFT_PT 寄せる)
   function fillPct(today, mode, aim) {
     const base = tendencyAt(today, 'all').stats;
     const v = {};
@@ -255,23 +255,23 @@ const Calc = (() => {
       const next = `${startLabel(x)} ${TYPE_LABEL[k]}(あと${left}日)`;
       if (left > win) {
         plan = { kind: 'far', type: null, aim: k, next,
-          title: '普段通りでOK',
+          title: '普段どおり寝る',
           reason: `狙いまで${left}日あり、平均に使う直近30回(今の記録の頻度で約${win}日ぶん)より先なので、まだ影響しない期間です。あと${left - win}日ほどしたら意識を始めましょう。` };
       } else {
-        // 平均は「狙い週の直前30回」の見込み(これからの夜は普段通りとみなす)で考える(推定)
+        // 平均は「狙い週の直前30回」の見込み(これからの夜は普段どおりとみなす)で考える(推定)
         const proj = projectAverage(x.start, 'A', k, date);
         const ppct = proj.n ? proj[k].mean.toFixed(1) + '%' : '—';
         const ref = tendencyAt(date, 'all');
         const gap = proj.n && ref.stats.n ? ref.stats[k].mean - proj[k].mean : null;
-        // 全期間の記録で、狙うタイプが普段から出やすいなら、反対側を狙わず普段通り寝ればよい(推定)
+        // 全期間の記録で、狙うタイプが普段から出やすいなら、反対側を狙わず普段どおり寝ればよい(推定)
         const tr = ref;
         if (gap != null && proj.real > 0 && ref.stats.n >= TREND_MIN_N && gap >= PROJ_USUAL_GAP_PT) {
           plan = { kind: 'usual', type: null, aim: k, next, proj,
-            title: '普段通り寝てください',
-            reason: `狙い週(${fmtMd(x.start)}〜)の直前30回の見込みでは、${TYPE_LABEL[k]}の平均は${ppct}で、あなたの普段(全期間 ${ref.stats[k].mean.toFixed(1)}%)より${gap.toFixed(1)}ポイント低くなりそうです。普段通りに寝れば、狙う週に「平均より多い」になりやすい見込みです(推定)。` };
+            title: '普段どおり寝る',
+            reason: `狙い週(${fmtMd(x.start)}〜)の直前30回の見込みでは、${TYPE_LABEL[k]}の平均は${ppct}で、あなたの普段(全期間 ${ref.stats[k].mean.toFixed(1)}%)より${gap.toFixed(1)}ポイント低くなりそうです。普段どおりに寝れば、狙う週に「平均より多い」になりやすい見込みです(推定)。` };
         } else if (tr.typed >= TREND_MIN_N && tr.rate[k] >= USUAL_RATE_PCT) {
           plan = { kind: 'usual', type: null, aim: k, next, proj,
-            title: '普段通り寝てください',
+            title: '普段どおり寝る',
             reason: `あなたの記録では、${TYPE_LABEL[k]}が出た夜は全期間で${tr.rate[k].toFixed(0)}%(${tr.counts[k]}/${tr.typed}回・${tr.level})。普段から出やすいので、前の週に反対側を狙わなくても、狙う週に出る見込みがあります(記録から数えた目安・推定)。` };
         } else {
         const c = counterOf(k, avg);
