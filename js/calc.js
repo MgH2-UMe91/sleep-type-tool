@@ -113,6 +113,21 @@ const Calc = (() => {
       type: c.type, top, diffs: c.diffs, base, usual };
   }
 
+  // 来週の睡眠タイプ予報(推定)。来週月曜 S の前日までの直近30回(windowAt)の見込み平均を基準に、普段の寝方(likelyTonight と同じ直近100回)と比べる。
+  // 今週の未記録の夜は projectAverage と同じ埋め方:A=普段どおり(全期間の平均)/ B=aim を来週狙う準備(aim を控えめに、反対側へ PREP_SHIFT_PT 寄せる)。
+  // 判定は今夜の予報と同じ classify(差が NEAR_AVG_PT 未満なら「とくちょうなし」)
+  function nextWeekForecast(today, mode = 'A', aim = null) {
+    const dow = parseYmd(today).getDay();
+    const S = addDays(today, (8 - dow) % 7 || 7);
+    const w = windowAt(S, today), proj = projectAverage(S, mode, aim, today);
+    const us = tendencyAt(today, 'r100'), usual = us.stats;
+    const out = { S, end: addDays(S, 6), w, proj, fixed: w.stay.length, total: proj.n, nights: w.nights, n: usual.n, enough: usual.n >= TREND_MIN_N && proj.n > 0 };
+    if (!out.enough) return out;
+    const c = classify({ utoPct: usual.uto.mean, suyaPct: usual.suya.mean, gusPct: usual.gus.mean }, proj);
+    const top = KINDS.reduce((a, k) => c.diffs[k] > c.diffs[a] ? k : a, KINDS[0]);
+    return { ...out, level: reliability(us.typed), partial: usual.n < 100, type: c.type, top, diffs: c.diffs, usual };
+  }
+
   // ---------- 狙う週に向けたおすすめ ----------
   // 考え方(推定):タイプはその夜の割合が直近30回の平均より目立って多いもの。
   // 狙う週にタイプXを出すには、狙っていない週にXを少なめにして平均を下げておく。効くのは狙い週の直前30回ぶんの夜だけ。
@@ -281,5 +296,5 @@ const Calc = (() => {
   }
 
   return { pick, stats, averageAt, reliability, tendency, tendencyAt, suspicious, estimateType, planFor, windowDays, perDayAt, upcomingTargets,
-    windowAt, projectAverage, abandonImpact, likelyTonight, missingDays, spanMin, fmtMd };
+    windowAt, projectAverage, abandonImpact, likelyTonight, nextWeekForecast, missingDays, spanMin, fmtMd };
 })();

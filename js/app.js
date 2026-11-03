@@ -232,6 +232,53 @@ function likelyCard(today, plan) {
   </section>`;
 }
 
+// ホーム:来週の睡眠タイプ予報(推定)。来週月曜の前日までの直近30回の見込み平均と、普段の寝方(直近100回)を比べる。
+// A/B の切り替えと B の狙うタイプは、ホームを開いているあいだだけ覚える(保存しない)
+let nextMode = 'A', nextAim = null;
+function nextWeekCard(today, plan) {
+  if (!Store.records().length) return '';
+  const S0 = Calc.nextWeekForecast(today).S;
+  const wt = Store.get().weekTargets.find(t => t.weekStart === S0 && KINDS.includes(t.target));
+  const aim = nextAim || (wt && wt.target) || (KINDS.includes(plan.aim) ? plan.aim : 'uto');
+  const f = Calc.nextWeekForecast(today, nextMode, aim);
+  const sign = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
+  const seg = `<div class="seg nw-seg" role="group" aria-label="今週の残りの夜の過ごし方">
+      <button type="button" data-nm="A" aria-pressed="${nextMode === 'A'}">普段どおり寝る</button>
+      <button type="button" data-nm="B" aria-pressed="${nextMode === 'B'}">来週の狙いに備える</button></div>
+    ${nextMode === 'B' ? `<div class="row nw-aim"><span class="small muted">来週狙う</span>${KINDS.map(k => `<button type="button" class="btn ghost small${k === aim ? ' on' : ''}" data-na="${k}" aria-pressed="${k === aim}">${TYPE_LABEL[k]}</button>`).join('')}</div>
+      <p class="small muted">今週の残りの夜は、${TYPE_LABEL[aim]}を控えめにして${TYPE_LABEL[f.proj.counter] || '反対側'}を意識する(${PREP_SHIFT_PT}ポイント寄せる)とみなします。</p>` : ''}`;
+  let body;
+  if (!f.enough) body = `<p class="small muted">記録が${TREND_MIN_N}件たまると表示します(いま${f.n || 0}件)。</p>`;
+  else {
+    const t = f.type, uLabel = f.partial ? `全期間(${f.n}件)` : '直近100回';
+    const left = f.total - f.fixed;
+    const status = !left ? '確定' : f.nights <= 1 ? 'ほぼ確定' : 'まだ見込み';
+    body = `<p class="likely-big">来週は${t === 'none' ? '<b>とくちょうなし</b>になりそう' : `<b>${TYPE_LABEL[t]}</b>が出やすそう`}</p>
+    <p class="small muted">普通に寝た場合の推定。${t === 'none' ? `どのタイプも差が${NEAR_AVG_PT}ポイント未満です。` : `${uLabel}の平均が、来週の基準(直近30回の見込み)を${sign(f.diffs[t])}ポイント上回っています。`}</p>
+    <p class="small">来週(${Calc.fmtMd(f.S)}〜${Calc.fmtMd(f.end)})の基準 = ${Calc.fmtMd(f.w.from)}〜${Calc.fmtMd(f.w.to)}の${f.total}回</p>
+    <div class="row"><span class="small"><b>確定 ${f.fixed}/${f.total}回</b>${left ? `(残り${f.nights}夜は見込み)` : ''}</span><span class="ref">${status}</span></div>
+    <div class="avgbar" aria-hidden="true">${KINDS.map(k => `<span class="t-${k}" style="width:${f.proj[k].mean}%"></span>`).join('')}</div>
+    <div class="tbl-wrap"><table class="likely-tbl">
+      <tr><th></th><th>来週の基準<br><small>30回の見込み</small></th><th>${uLabel}<br><small>普段の寝方</small></th><th>差</th></tr>
+      ${KINDS.map(k => `<tr${k === f.top ? ' class="top"' : ''}><td><span class="pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span></td>
+        <td class="num">${fmtPct(f.proj[k].mean)}%</td><td class="num">${fmtPct(f.usual[k].mean)}%</td><td class="num">${sign(f.diffs[k])}</td></tr>`).join('')}
+    </table></div>
+    ${f.partial ? `<div class="row"><span class="small muted">普段の寝方は${f.n}件から算出</span><span class="ref">${f.level}</span></div>` : ''}`;
+  }
+  return `<section class="card likely" id="nextWeek">
+    <h2 class="small-h">🗓 来週の睡眠タイプ予報</h2>
+    ${seg}
+    ${body}
+    <p class="small muted">今週のまだ記録していない夜は、${nextMode === 'A' ? 'あなたの全期間の平均' : `全期間の平均から${PREP_SHIFT_PT}ポイント寄せた仮の値`}で埋めて試算しています。記録が増えるほど確定に近づきます。ゲームの内部の判定は非公開のため推定です。</p>
+  </section>`;
+}
+function bindNextWeek(root, today, plan) {
+  const card = $('#nextWeek', root); if (!card) return;
+  const redo = () => { card.outerHTML = nextWeekCard(today, plan); bindNextWeek(root, today, plan); };
+  $$('button[data-nm]', card).forEach(b => b.onclick = () => { nextMode = b.dataset.nm; redo(); });
+  $$('button[data-na]', card).forEach(b => b.onclick = () => { nextAim = b.dataset.na; redo(); });
+}
+
 // ================= ホーム =================
 // ホーム画面に追加したアプリ(standalone)として開いているか。iOS は navigator.standalone も見る
 // ブラウザ版とアプリ版は localStorage が別なので、記録も別々に保存される
@@ -278,11 +325,13 @@ function viewHome(root) {
     <p class="small muted"><a href="#stats">くわしい統計・3つの期間の比較</a></p>
   </section>
   ${likelyCard(today, plan)}
+  ${nextWeekCard(today, plan)}
   <div class="grid2">
     <a class="btn" href="#input">記録を入力</a>
     <a class="btn ghost" href="#calendar">カレンダー</a>
   </div>
   ${needBackup ? `<section class="msg warn">${lastExp ? `最後のバックアップから${expDays}日たちました。` : 'まだバックアップを書き出していません。'}ブラウザのデータを消すと記録も消えます。<a href="#data">データ管理で書き出す</a></section>` : ''}`;
+  bindNextWeek(root, today, plan);
   const nx = $('#browserNoteX', root);
   if (nx) nx.onclick = () => {
     browserNoteClosed = true;

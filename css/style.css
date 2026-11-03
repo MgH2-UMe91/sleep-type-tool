@@ -153,6 +153,10 @@ details.fold > summary h2 { margin: 0; }
 .likely-tbl td, .likely-tbl th { padding: 5px 6px; }
 .likely-tbl tr.top td { font-weight: 700; color: var(--accent); }
 /* 狙い週の窓 */
+/* 来週の睡眠タイプ予報:今週の残りの夜の過ごし方(A/B)と、B の狙うタイプ */
+.nw-seg button { font-size: .85rem; line-height: 1.2; padding: 4px 6px; }
+.nw-aim { gap: 6px; align-items: center; }
+.nw-aim .btn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .wincard .aimv { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
 .wincard details summary { cursor: pointer; color: var(--accent); }
 .wincard .drops { gap: 4px 10px; margin-top: 6px; }
