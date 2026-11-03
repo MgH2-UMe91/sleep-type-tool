@@ -127,11 +127,11 @@ function trendPeriods(refDate) {
   }
   return out;
 }
-// ホームの平均カード:3つの期間それぞれに帯グラフと3つの平均(列は上の見出しにそろえる)
+// ホームの平均カード:直近30回・直近100回の帯グラフと3つの平均(列は上の見出しにそろえる)。全期間は統計画面の比較表だけに出す
 function avgRows(refDate) {
-  const ps = trendPeriods(refDate);
+  const ps = trendPeriods(refDate).filter(x => x.p !== 'all');
   if (!ps[0].tr.n) return '<p class="small muted">記録がありません。</p>';
-  // 中身が同じ期間でも省略せず、3本とも帯グラフで並べる
+  // 中身が同じ期間でも省略せず、2本とも帯グラフで並べる
   const row = ({ p, tr }) => {
     const head = `<div class="row avg3-head"><b>${TREND_SHORT[p]}</b>${TREND_SUB[p] ? `<span class="small muted">${TREND_SUB[p]}</span>` : ''}`;
     if (!tr.n) return `${head}<span class="small muted">記録なし</span></div>`;
@@ -142,7 +142,7 @@ function avgRows(refDate) {
   };
   return `<div class="avg3 avg3-legend small" aria-hidden="true">${KINDS.map(k => `<span class="pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span>`).join('')}</div>
     ${ps.map(row).join('')}
-    <p class="small muted">直近100回・全期間は、集計外の記録を除いて計算します。</p>`;
+    <p class="small muted">直近100回は、集計外の記録を除いて計算します。</p>`;
 }
 
 // 統計:3つの期間の比較表。直近30回との差が COMPARE_DIFF_PT ポイントを超える数字に印(*)
@@ -329,7 +329,7 @@ function viewHome(root) {
   <section class="card">
     <h2>平均</h2>
     ${avgRows(today)}
-    <p class="small muted"><a href="#stats">くわしい統計・3つの期間の比較</a></p>
+    <p class="small muted"><a href="#stats">くわしい統計・全期間を含む比較</a></p>
   </section>
   ${likelyCard(today, plan)}
   ${nextWeekCard(today, plan)}
