@@ -1384,4 +1384,9 @@ route();
     }
   } catch (e) { /* オフラインなどは何もしない */ }
 })();
+// オフライン対応。sw.js の版は index.html のキャッシュバスターと同じ値にして、版が変わればキャッシュも入れ替わるようにする
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+  const v = (document.querySelector('script[src*="app.js"]').getAttribute('src').match(/v=([\w-]+)/) || [])[1] || 'dev';
+  navigator.serviceWorker.register('sw.js?v=' + v, { scope: './', updateViaCache: 'none' }).catch(() => { /* 使えない環境では普通に動く */ });
+}
 Events.load().then(changed => { if (changed && /^#(home|targets|events)?($|\?)/.test(location.hash || '#home')) route(); });

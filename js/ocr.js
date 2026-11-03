@@ -196,7 +196,8 @@ const Ocr = (() => {
     workersPromise = (async () => {
       if (!window.Tesseract) await loadScript('vendor/tesseract.min.js');
       const abs = p => new URL(p, location.href).href;
-      const opt = { workerPath: abs('vendor/worker.min.js'), corePath: abs('vendor/core'), langPath: abs('vendor/lang') };
+      // workerBlobURL: false … 文字認識の部品をページと同じ場所から直接読み、オフライン用のキャッシュ(sw.js)から出せるようにする
+      const opt = { workerPath: abs('vendor/worker.min.js'), corePath: abs('vendor/core'), langPath: abs('vendor/lang'), workerBlobURL: false };
       const digits = await Tesseract.createWorker('eng', 1, opt);
       await digits.setParameters({ tessedit_char_whitelist: '0123456789%:', tessedit_pageseg_mode: '7' });
       const jpn = await Tesseract.createWorker('jpn', 1, opt);
