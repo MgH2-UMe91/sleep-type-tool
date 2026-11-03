@@ -20,6 +20,12 @@ const PREP_SHIFT_PT = 10;
 const PROJ_USUAL_GAP_PT = 5;
 // 期間の比較で「差が大きい」と印を付ける差(ポイント)。直近30回と比べる。仮の値
 const COMPARE_DIFF_PT = 5;
+// 今夜・来週の睡眠タイプ予報の言い方(ポイント)。いちばん大きいプラスの差が STRONG 以上=「出やすい」、WEAK 以上=「やや◯◯寄り」、それ未満=「とくちょうなし」。
+// STRONG は実データ57件での検証(差4pt以上を採ると一致率が最良)から。WEAK は仮の値。NEAR_AVG_PT(その夜の推定タイプ)とは別
+const FORECAST_STRONG_PT = 4;
+const FORECAST_WEAK_PT = 1;
+// 予報の、過去の記録での的中率の目安(%)。実データ57件での検証から。推定
+const FORECAST_HIT_PCT = 75;
 // 怪しい記録の目安:睡眠時間がこれ(分)未満なのにぐっすり。仮の値
 const SUSPECT_SLEEP_MIN = 120;
 
@@ -103,19 +109,19 @@ const Calc = (() => {
   }
 
   // 今夜の睡眠タイプ予報(推定)。ゲームの基準(直近30回の平均)と、普段の寝方(直近100回の平均。集計外を除き、100件に満たなければ全期間)を比べ、
-  // 普段の平均が基準を一番上回るタイプを「普通に寝ると出やすい」とする。差が NEAR_AVG_PT 未満なら「とくちょうなし」(classify と同じ規則)
+  // 普段の平均が基準を一番上回るタイプを「普通に寝ると出やすい」とする。言い方は forecastGrade(差が FORECAST_WEAK_PT 未満なら「とくちょうなし」)
   function likelyTonight(date) {
     const base = tendencyAt(date, 'r30').stats, us = tendencyAt(date, 'r100'), usual = us.stats;
     if (!base.n || !usual.n) return { n: usual.n, enough: false };
     const c = classify({ utoPct: usual.uto.mean, suyaPct: usual.suya.mean, gusPct: usual.gus.mean }, base);
-    const top = KINDS.reduce((a, k) => c.diffs[k] > c.diffs[a] ? k : a, KINDS[0]);
+    const g = forecastGrade(c.diffs);
     return { n: usual.n, level: reliability(us.typed), enough: usual.n >= TREND_MIN_N, partial: usual.n < 100,
-      type: c.type, top, diffs: c.diffs, base, usual };
+      type: g.type, strength: g.strength, top: g.top, diffs: c.diffs, base, usual };
   }
 
   // 来週の睡眠タイプ予報(推定)。来週月曜 S の前日までの直近30回(windowAt)の見込み平均を基準に、普段の寝方(likelyTonight と同じ直近100回)と比べる。
   // 今週の未記録の夜は projectAverage と同じ埋め方:A=普段どおり(全期間の平均)/ B=aim を来週狙う準備(aim を控えめに、反対側へ PREP_SHIFT_PT 寄せる)。
-  // 判定は今夜の予報と同じ classify(差が NEAR_AVG_PT 未満なら「とくちょうなし」)
+  // 差は今夜の予報と同じ定義、言い方も同じ forecastGrade
   function nextWeekForecast(today, mode = 'A', aim = null) {
     const dow = parseYmd(today).getDay();
     const S = addDays(today, (8 - dow) % 7 || 7);
@@ -124,8 +130,15 @@ const Calc = (() => {
     const out = { S, end: addDays(S, 6), w, proj, fixed: w.stay.length, total: proj.n, nights: w.nights, n: usual.n, enough: usual.n >= TREND_MIN_N && proj.n > 0 };
     if (!out.enough) return out;
     const c = classify({ utoPct: usual.uto.mean, suyaPct: usual.suya.mean, gusPct: usual.gus.mean }, proj);
-    const top = KINDS.reduce((a, k) => c.diffs[k] > c.diffs[a] ? k : a, KINDS[0]);
-    return { ...out, level: reliability(us.typed), partial: usual.n < 100, type: c.type, top, diffs: c.diffs, usual };
+    const g = forecastGrade(c.diffs);
+    return { ...out, level: reliability(us.typed), partial: usual.n < 100, type: g.type, strength: g.strength, top: g.top, diffs: c.diffs, usual };
+  }
+
+  // 予報の言い方:3タイプの差のうち一番大きいプラスの差で、strong(出やすい)/ weak(やや寄り)/ none(とくちょうなし)
+  function forecastGrade(diffs) {
+    const top = KINDS.reduce((a, k) => diffs[k] > diffs[a] ? k : a, KINDS[0]), d = diffs[top];
+    const strength = d >= FORECAST_STRONG_PT ? 'strong' : d >= FORECAST_WEAK_PT ? 'weak' : 'none';
+    return { top, strength, type: strength === 'none' ? 'none' : top };
   }
 
   // ---------- 狙う週に向けたおすすめ ----------
@@ -296,5 +309,5 @@ const Calc = (() => {
   }
 
   return { pick, stats, averageAt, reliability, tendency, tendencyAt, suspicious, estimateType, planFor, windowDays, perDayAt, upcomingTargets,
-    windowAt, projectAverage, abandonImpact, likelyTonight, nextWeekForecast, missingDays, spanMin, fmtMd };
+    windowAt, projectAverage, abandonImpact, likelyTonight, nextWeekForecast, forecastGrade, missingDays, spanMin, fmtMd };
 })();

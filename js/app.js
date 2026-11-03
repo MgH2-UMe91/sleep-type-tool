@@ -202,6 +202,17 @@ function windowCard(today) {
   </section>`;
 }
 
+// 予報の見出しと補足(今夜・来週で共通)。when: '今夜' | '来週'、vs: 比べた基準の言い方
+function forecastHead(when, f, uLabel, vs) {
+  const sign = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
+  const t = f.top, name = TYPE_LABEL[t];
+  if (f.strength === 'none') return `<p class="likely-big">${when}は<b>とくちょうなし</b>になりそう</p>
+    <p class="small muted">普通に寝た場合の推定。どのタイプも差が${FORECAST_WEAK_PT}ポイント未満です。</p>`;
+  return `<p class="likely-big">${when}は${f.strength === 'strong' ? `<b>${name}</b>が出やすそう` : `<b>やや${name}寄り</b>`}</p>
+    <p class="small muted">普通に寝た場合の推定。${uLabel}の平均が${vs}を${sign(f.diffs[t])}ポイント上回っています${f.strength === 'weak' ? `(${FORECAST_STRONG_PT}ポイント未満なので弱め)` : ''}。</p>`;
+}
+const forecastNote = () => `差が${FORECAST_STRONG_PT}ポイント以上で「出やすい」、${FORECAST_WEAK_PT}〜${FORECAST_STRONG_PT}ポイント未満で「やや◯◯寄り」、${FORECAST_WEAK_PT}ポイント未満ならとくちょうなし(しきい値は仮)。過去の記録での的中率は約${FORECAST_HIT_PCT}%(推定)。`;
+
 // ホーム:今夜の睡眠タイプ予報(推定)。直近30回の平均(ゲームの基準)と直近100回の平均(普段の寝方)の差で見る
 function likelyCard(today, plan) {
   const lt = Calc.likelyTonight(today);
@@ -211,10 +222,7 @@ function likelyCard(today, plan) {
   let body;
   if (!lt.enough) body = `<p class="small muted">記録が${TREND_MIN_N}件たまると表示します(いま${lt.n || 0}件)。</p>`;
   else {
-    const t = lt.type;
-    const head = t === 'none'
-      ? `<p class="likely-big">今夜は<b>とくちょうなし</b>になりそう</p><p class="small muted">普通に寝た場合の推定。どのタイプも差が${NEAR_AVG_PT}ポイント未満です。</p>`
-      : `<p class="likely-big">今夜は<b>${TYPE_LABEL[t]}</b>が出やすそう</p><p class="small muted">普通に寝た場合の推定。${uLabel}の平均が直近30回の平均を${sign(lt.diffs[t])}ポイント上回っています。</p>`;
+    const head = forecastHead('今夜', lt, uLabel, '直近30回の平均');
     const aim = plan.aim && (plan.kind === 'aim' || plan.kind === 'prep' || plan.kind === 'usual') ? plan.aim : null;
     body = `${head}
     <div class="tbl-wrap"><table class="likely-tbl">
@@ -222,13 +230,13 @@ function likelyCard(today, plan) {
       ${KINDS.map(k => `<tr${k === lt.top ? ' class="top"' : ''}><td><span class="pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span></td>
         <td class="num">${fmtPct(lt.base[k].mean)}%</td><td class="num">${fmtPct(lt.usual[k].mean)}%</td><td class="num">${sign(lt.diffs[k])}</td></tr>`).join('')}
     </table></div>
-    ${aim ? `<p class="small">狙う${TYPE_LABEL[aim]}は${lt.diffs[aim] >= NEAR_AVG_PT ? '出やすい側' : lt.diffs[aim] > 0 ? 'やや出やすい側' : '出にくい側'}です(差 ${sign(lt.diffs[aim])})。</p>` : ''}
+    ${aim ? `<p class="small">狙う${TYPE_LABEL[aim]}は${lt.diffs[aim] >= FORECAST_STRONG_PT ? '出やすい側' : lt.diffs[aim] >= FORECAST_WEAK_PT ? 'やや出やすい側' : '出にくい側'}です(差 ${sign(lt.diffs[aim])})。</p>` : ''}
     ${lt.partial ? `<div class="row"><span class="small muted">普段の寝方は${lt.n}件から算出</span><span class="ref">${lt.level}</span></div>` : ''}`;
   }
   return `<section class="card likely">
     <h2 class="small-h">🌙 今夜の睡眠タイプ予報</h2>
     ${body}
-    <p class="small muted">差がプラスのタイプほど、普通に寝たときに直近30回の平均を上回りやすく、出やすいと考えます。差が${NEAR_AVG_PT}ポイント未満ならとくちょうなし。ゲームの内部の判定は非公開のため推定です。</p>
+    <p class="small muted">差がプラスのタイプほど、普通に寝たときに直近30回の平均を上回りやすく、出やすいと考えます。${forecastNote()}ゲームの内部の判定は非公開のため推定です。</p>
   </section>`;
 }
 
@@ -250,11 +258,10 @@ function nextWeekCard(today, plan) {
   let body;
   if (!f.enough) body = `<p class="small muted">記録が${TREND_MIN_N}件たまると表示します(いま${f.n || 0}件)。</p>`;
   else {
-    const t = f.type, uLabel = f.partial ? `全期間(${f.n}件)` : '直近100回';
+    const uLabel = f.partial ? `全期間(${f.n}件)` : '直近100回';
     const left = f.total - f.fixed;
     const status = !left ? '確定' : f.nights <= 1 ? 'ほぼ確定' : 'まだ見込み';
-    body = `<p class="likely-big">来週は${t === 'none' ? '<b>とくちょうなし</b>になりそう' : `<b>${TYPE_LABEL[t]}</b>が出やすそう`}</p>
-    <p class="small muted">普通に寝た場合の推定。${t === 'none' ? `どのタイプも差が${NEAR_AVG_PT}ポイント未満です。` : `${uLabel}の平均が、来週の基準(直近30回の見込み)を${sign(f.diffs[t])}ポイント上回っています。`}</p>
+    body = `${forecastHead('来週', f, uLabel, '来週の基準(直近30回の見込み)')}
     <p class="small">来週(${Calc.fmtMd(f.S)}〜${Calc.fmtMd(f.end)})の基準 = ${Calc.fmtMd(f.w.from)}〜${Calc.fmtMd(f.w.to)}の${f.total}回</p>
     <div class="row"><span class="small"><b>確定 ${f.fixed}/${f.total}回</b>${left ? `(残り${f.nights}夜は見込み)` : ''}</span><span class="ref">${status}</span></div>
     <div class="avgbar" aria-hidden="true">${KINDS.map(k => `<span class="t-${k}" style="width:${f.proj[k].mean}%"></span>`).join('')}</div>
@@ -269,7 +276,7 @@ function nextWeekCard(today, plan) {
     <h2 class="small-h">🗓 来週の睡眠タイプ予報</h2>
     ${seg}
     ${body}
-    <p class="small muted">今週のまだ記録していない夜は、${nextMode === 'A' ? 'あなたの全期間の平均' : `全期間の平均から${PREP_SHIFT_PT}ポイント寄せた仮の値`}で埋めて試算しています。記録が増えるほど確定に近づきます。ゲームの内部の判定は非公開のため推定です。</p>
+    <p class="small muted">今週のまだ記録していない夜は、${nextMode === 'A' ? 'あなたの全期間の平均' : `全期間の平均から${PREP_SHIFT_PT}ポイント寄せた仮の値`}で埋めて試算しています。記録が増えるほど確定に近づきます。${forecastNote()}ゲームの内部の判定は非公開のため推定です。</p>
   </section>`;
 }
 function bindNextWeek(root, today, plan) {
