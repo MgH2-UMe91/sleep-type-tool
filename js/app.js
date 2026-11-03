@@ -203,7 +203,7 @@ function windowCard(today, compact = false) {
     ${c ? bar(`狙い週時点 ${TYPE_LABEL[c]}を意識`, B) : ''}
     ${w.future && c && usual ? `<p class="small">${gain < 0.5 ? '意識してもほとんど変わりません。' : `意識しても、下がるのは約${gain.toFixed(1)}ptだけです。`}普段通りで大丈夫です。</p>`
       : w.future && c ? `<p class="small">残り約${w.future}夜で${TYPE_LABEL[c]}を意識すれば、${TYPE_LABEL[k]}の平均は約${B[k].mean.toFixed(1)}%まで${B[k].mean <= now[k]?.mean ? '下がる' : 'になる'}見込みです。</p>` : ''}
-    ${compact ? `<p class="small muted">推定です。窓から抜ける記録は<a href="#stats">くわしい統計</a>で見られます。</p>`
+    ${compact ? `<p class="small muted">推定です。窓から抜ける記録は<a href="#stats">詳しい統計</a>で見られます。</p>`
       : `<p class="small muted">ゲームの内部の判定は非公開のため、すべて推定です。これからの夜は、「普段通り」=あなたの全期間の平均、「${TYPE_LABEL[c] || '反対側'}を意識」=そこから${TYPE_LABEL[c] || '反対側'}へ${PREP_SHIFT_PT}ポイント寄せた値として計算しています。</p>`}
   </section>`;
 }
@@ -218,7 +218,7 @@ function forecastHead(when, f, uLabel, vs) {
     <p class="small muted">普通に寝た場合の推定。${uLabel}の平均が${vs}を${sign(f.diffs[t])}ポイント上回っています${f.strength === 'weak' ? `(${FORECAST_STRONG_PT}ポイント未満なので弱め)` : ''}。</p>`;
 }
 // 予報カードに残す的中率の一行
-const forecastHit = () => `<p class="small muted">過去の記録での的中率は約${FORECAST_HIT_PCT}%(推定)。くわしくは下の「予報について」</p>`;
+const forecastHit = () => `<p class="small muted">過去の記録での的中率は約${FORECAST_HIT_PCT}%(推定)。詳しくは下の「予報について」</p>`;
 // 今夜・来週の予報の説明をまとめた折りたたみ(初めは閉じる。開閉は保存)
 function forecastAbout() {
   if (!Store.records().length) return '';
@@ -350,7 +350,7 @@ function viewHome(root) {
   <section class="card">
     <h2>平均</h2>
     ${avgRows(today)}
-    <p class="small muted"><a href="#stats">くわしい統計・全期間を含む比較</a></p>
+    <p class="small muted"><a href="#stats">詳しい統計・全期間を含む比較</a></p>
   </section>
   ${likelyCard(today, plan)}
   ${nextWeekCard(today, plan)}
