@@ -198,7 +198,7 @@ function windowCard(today, compact = false) {
       <div class="row drops">${drops.map(r => `<span class="drop">${Calc.fmtMd(r.date)} ${r.type ? `<span class="tl t-${r.type}">${SHORT[r.type]}</span>` : ''}<span class="num muted">${r.utoPct}/${r.suyaPct}/${r.gusPct}</span></span>`).join('')}</div></details>`
       : `<p class="small muted">${w.cur.length < RANGE_N && !drops.length ? 'まだ30件たまっていないので、狙い週までに抜ける記録はありません。' : '抜ける記録はありません。'}</p>`}
     <div class="avg3 avg3-legend small" aria-hidden="true">${KINDS.map(t => `<span class="pct-label">${pctDot(t)}${TYPE_LABEL[t]}</span>`).join('')}</div>
-    ${bar('今日の直近30回', now)}
+    ${compact ? '' : bar('今日の直近30回', now)}
     ${bar('狙い週時点 普段通り', A)}
     ${c ? bar(`狙い週時点 ${TYPE_LABEL[c]}を意識`, B) : ''}
     ${w.future && c && usual ? `<p class="small">${gain < 0.5 ? '意識してもほとんど変わりません。' : `意識しても、下がるのは約${gain.toFixed(1)}ptだけです。`}普段通りで大丈夫です。</p>`
