@@ -238,51 +238,82 @@ const Calc = (() => {
     const pct = k => avg.n ? avg[k].mean.toFixed(1) + '%' : '—';
     const ups = upcomingTargets(date);
     const now = Store.targetOf(date);
-    let plan;
+    const win = windowDays(date);
+    const inWin = u => daysBetween(date, u.start) <= win;
+    const lbl = u => `${startLabel(u)}${TYPE_LABEL[u.k]}`;
+    let plan, after;
     if (now && KINDS.includes(now.target)) {
-      const k = now.target;
+      const k = now.target, when = now.from === 'day' ? '今夜' : '今週';
+      after = ups.find(u => !(u.k === k && mondayOf(u.start) === mondayOf(date)));
+      // 次の狙いの窓に今の夜が入るなら、その影響を一言添える(添えたら「その次の狙い」の行は出さない)
+      let note = '';
+      if (after && inWin(after)) {
+        note = after.k === k
+          ? `${when}${TYPE_LABEL[k]}が多いと、次の週の平均も上がり、次の週は出にくくなる見込みです(推定)。`
+          : `${now.from === 'day' ? '今夜' : '今週の夜'}は次の狙い(${lbl(after)})の平均にも入ります。${TYPE_LABEL[k]}が多い夜は${TYPE_LABEL[after.k]}が少なめになるので、邪魔になりにくい見込みです(推定)。`;
+        after = null;
+      }
       plan = {
         kind: 'aim', type: k, aim: k,
-        next: `${now.from === 'day' ? '今夜' : '今週'} ${TYPE_LABEL[k]}(狙い期間中)`,
-        title: `${now.from === 'day' ? '今夜' : '今週'}は${TYPE_LABEL[k]}を狙って寝る`,
-        reason: `平均より${TYPE_LABEL[k]}を多めに出すのがねらい(${TYPE_LABEL[k]}の直近30回の平均 ${pct(k)})。`,
+        next: `${when} ${TYPE_LABEL[k]}(狙い期間中)`,
+        title: `${when}は${TYPE_LABEL[k]}を狙って寝る`,
+        reason: `平均より${TYPE_LABEL[k]}を多めに出すのがねらい(${TYPE_LABEL[k]}の直近30回の平均 ${pct(k)})。${note}`,
       };
     } else if (!ups.length) {
       return { kind: 'unset', type: null, next: '未設定', title: 'まず狙う週を決めてください',
         reason: '狙う週を決めると、それまでの週に意識するタイプをおすすめします。', avg };
     } else {
-      const x = ups[0], k = x.k, left = daysBetween(date, x.start), win = windowDays(date);
+      const x = ups[0], k = x.k, left = daysBetween(date, x.start);
       const next = `${startLabel(x)} ${TYPE_LABEL[k]}(あと${left}日)`;
+      after = ups[1];
       if (left > win) {
         plan = { kind: 'far', type: null, aim: k, next,
           title: '普段どおり寝る',
           reason: `狙いまで${left}日あり、平均に使う直近30回(今の記録の頻度で約${win}日ぶん)より先なので、まだ影響しない期間です。あと${left - win}日ほどしたら意識を始めましょう。` };
       } else {
         // 平均は「狙い週の直前30回」の見込み(これからの夜は普段通りとみなす)で考える(推定)
-        const proj = projectAverage(x.start, 'A', k, date);
-        const ppct = proj.n ? proj[k].mean.toFixed(1) + '%' : '—';
         const ref = tendencyAt(date, 'all');
-        const gap = proj.n && ref.stats.n ? ref.stats[k].mean - proj[k].mean : null;
-        // 全期間の記録で、狙うタイプが普段から出やすいなら、反対側を狙わず普段通り寝ればよい(推定)
-        const tr = ref;
-        if (gap != null && proj.real > 0 && ref.stats.n >= TREND_MIN_N && gap >= PROJ_USUAL_GAP_PT) {
+        // 狙い1つについての「普段どおりでよいか」の判定。よければ reason にその理由が入る
+        const judge = u => {
+          const k = u.k, proj = projectAverage(u.start, 'A', k, date);
+          const ppct = proj.n ? proj[k].mean.toFixed(1) + '%' : '—';
+          const gap = proj.n && ref.stats.n ? ref.stats[k].mean - proj[k].mean : null;
+          let reason = null;
+          // 全期間の記録で、狙うタイプが普段から出やすいなら、反対側を狙わず普段通り寝ればよい(推定)
+          if (gap != null && proj.real > 0 && ref.stats.n >= TREND_MIN_N && gap >= PROJ_USUAL_GAP_PT) {
+            reason = `狙い週(${fmtMd(u.start)}〜)の直前30回の見込みでは、${TYPE_LABEL[k]}の平均は${ppct}で、あなたの普段(全期間 ${ref.stats[k].mean.toFixed(1)}%)より${gap.toFixed(1)}ポイント低くなりそうです。普段通りに寝れば、狙う週に「平均より多い」になりやすい見込みです(推定)。`;
+          } else if (ref.typed >= TREND_MIN_N && ref.rate[k] >= USUAL_RATE_PCT) {
+            reason = `あなたの記録では、${TYPE_LABEL[k]}が出た夜は全期間で${ref.rate[k].toFixed(0)}%(${ref.counts[k]}/${ref.typed}回・${ref.level})。普段から出やすいので、前の週に反対側を狙わなくても、狙う週に出る見込みがあります(記録から数えた目安・推定)。`;
+          }
+          return { proj, ppct, reason };
+        };
+        const y = ups[1] && inWin(ups[1]) ? ups[1] : null; // 窓に入る2つ目の狙い
+        const j = judge(x), j2 = y && judge(y), proj = j.proj;
+        if (y) after = ups[2];
+        if (j.reason && (!y || j2.reason)) {
           plan = { kind: 'usual', type: null, aim: k, next, proj,
             title: '普段どおり寝る',
-            reason: `狙い週(${fmtMd(x.start)}〜)の直前30回の見込みでは、${TYPE_LABEL[k]}の平均は${ppct}で、あなたの普段(全期間 ${ref.stats[k].mean.toFixed(1)}%)より${gap.toFixed(1)}ポイント低くなりそうです。普段通りに寝れば、狙う週に「平均より多い」になりやすい見込みです(推定)。` };
-        } else if (tr.typed >= TREND_MIN_N && tr.rate[k] >= USUAL_RATE_PCT) {
-          plan = { kind: 'usual', type: null, aim: k, next, proj,
-            title: '普段どおり寝る',
-            reason: `あなたの記録では、${TYPE_LABEL[k]}が出た夜は全期間で${tr.rate[k].toFixed(0)}%(${tr.counts[k]}/${tr.typed}回・${tr.level})。普段から出やすいので、前の週に反対側を狙わなくても、狙う週に出る見込みがあります(記録から数えた目安・推定)。` };
+            reason: y ? `${lbl(x)}・${lbl(y)}のどちらも、普段通りに寝れば狙う週に出やすい見込みです(推定)。` : j.reason };
+        } else if (!y) {
+          const c = counterOf(k, avg);
+          plan = { kind: 'prep', type: c.k, aim: k, next, proj,
+            title: `${TYPE_LABEL[c.k]}を意識して寝る`,
+            reason: `狙い週(${fmtMd(x.start)}〜)の直前30回の見込みで、${TYPE_LABEL[k]}の平均 ${j.ppct}(今日の直近30回は ${pct(k)})→ 下げたい。狙う週の前に${TYPE_LABEL[k]}を少なめにしておくと、狙う週に「平均より多い」になりやすい(推定)。` + (c.why ? `${TYPE_LABEL[c.k]}を選んだ理由:${c.why}。` : '') };
         } else {
-        const c = counterOf(k, avg);
-        plan = { kind: 'prep', type: c.k, aim: k, next, proj,
-          title: `${TYPE_LABEL[c.k]}を意識して寝る`,
-          reason: `狙い週(${fmtMd(x.start)}〜)の直前30回の見込みで、${TYPE_LABEL[k]}の平均 ${ppct}(今日の直近30回は ${pct(k)})→ 下げたい。狙う週の前に${TYPE_LABEL[k]}を少なめにしておくと、狙う週に「平均より多い」になりやすい(推定)。` + (c.why ? `${TYPE_LABEL[c.k]}を選んだ理由:${c.why}。` : '') };
+          // 別のタイプの狙いが2つなら、どちらでもないタイプを意識する(片方を下げるためにもう片方を増やさない)
+          const c = y.k === k ? counterOf(k, avg) : { k: KINDS.find(t => t !== k && t !== y.k), why: '' };
+          const C = TYPE_LABEL[c.k];
+          const only = j.reason ? y : j2.reason ? x : null, ok = only === x ? y : x; // 下げたいのが片方だけのとき
+          const why = only ? `${lbl(only)}の平均を下げたいので、${C}を意識。${lbl(ok)}は普段通りでも出やすい見込みです(推定)。`
+            : y.k === k ? `${startLabel(x)}・${startLabel(y)}の${TYPE_LABEL[k]}の平均を下げたいので、${C}を意識(推定)。`
+            : `${lbl(x)}・${lbl(y)}のどちらの平均も下げられるので、${C}を意識(推定)。`;
+          plan = { kind: 'prep', type: c.k, aim: k, next, proj,
+            title: `${C}を意識して寝る`,
+            reason: why + (c.why ? `${C}を選んだ理由:${c.why}。` : '') };
         }
       }
     }
-    // 次の(別の)狙いを補足で一言
-    const after = plan.kind === 'aim' ? ups.find(u => !(u.k === plan.aim && mondayOf(u.start) === mondayOf(date))) : ups[1];
+    // 理由で触れていない次の狙いを補足で一言
     if (after) plan.more = `その次の狙い:${startLabel(after)} ${TYPE_LABEL[after.k]}`;
     plan.avg = avg;
     return plan;

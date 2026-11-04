@@ -869,7 +869,7 @@ function viewCalendar(root, id, q) {
 
   const list = $('#calList', root), topEl = $('#calTop', root);
   // 古い月を追加する。追加した高さぶんスクロール位置をずらして、見ている場所を動かさない
-  // 週の行の帯を上の段から詰めて並べる(狙う週の札も同じ段に入れる)。
+  // 週の行の帯を上の段から詰めて並べる。1段目は狙う週の札と公式イベントの帯、その下が NMD・GSD。
   // 帯は開始日の列から始めるのが基本。上の段に空きがあれば、イベントの期間内で右にずらして入れる。
   // 文字が収まる幅まで伸ばし(最大で日曜の列まで)、それでも収まらない分は「…」で省略
   const GAP = 3;
@@ -886,14 +886,26 @@ function viewCalendar(root, id, q) {
         el.style.gridColumn = '1 / 2';
         const need = colsFor(el.scrollWidth + 1); // 文字に必要な列数
         const s = Number(el.dataset.s), e = Number(el.dataset.e);
-        let spot = null;
-        // 上の段から順に、イベントの期間内(開始列〜終了列)の空きを探す
-        for (let r = 0; r < rows.length && !spot; r++) {
-          for (let c = s; c <= e && !spot; c++) {
+        // イベントの期間内(開始列〜終了列)の空きを探す
+        const fit = r => {
+          for (let c = s; c <= e; c++) {
             const end = Math.min(7, Math.max(e, c + need - 1));
-            if (c + need - 1 <= 7 && free(r, c, end)) spot = [r, c, end];
+            if (c + need - 1 <= 7 && free(r, c, end)) return [r, c, end];
           }
-        }
+          return null;
+        };
+        // 1段目に全文が入らなくても、2列以上の空きがあれば「…」で省略して入れる
+        const squeeze = () => {
+          for (let c = s; c <= e; c++) {
+            if (!free(0, c, c)) continue;
+            let end = c;
+            while (end < 7 && free(0, end + 1, end + 1)) end++;
+            if (end > c) return [0, c, end];
+          }
+          return null;
+        };
+        let spot = rows.length ? fit(0) || squeeze() : null;
+        for (let r = 1; r < rows.length && !spot; r++) spot = fit(r);
         if (!spot) spot = [rows.length, s, Math.min(7, Math.max(e, s + need - 1))]; // 新しい段
         // 1列ぶんの幅にしかならないイベントの帯(日曜だけに切れた断片など)は描かない。日の詳細・ホーム・狙い設定には出る
         if (spot[1] === spot[2] && el.classList.contains('ev-bar') && !el.classList.contains('moon-ev')) { el.remove(); continue; }
