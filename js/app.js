@@ -1032,6 +1032,10 @@ function calDetailHtml(d, rs) {
         <span class="small muted">計測ミス・放置など。「自分の傾向」の100回・全期間から外します。直近30回(ゲームの平均)には含まれます。</span></div>
     </div>`;
   }).join('');
+  // その夜を平均と見比べる帯。割合の数字は上の表にあるので、ラベルと帯だけ
+  const nights = rs.map((r, i) => KINDS.some(k => r[PCT_KEY[k]] == null) ? '' : `<div class="stack">
+      <div class="row"><b>この夜${rs.length > 1 ? ` ${i + 1}件目` : ''}</b></div>
+      <div class="avgbar" aria-hidden="true">${KINDS.map(k => `<span class="t-${k}" style="width:${r[PCT_KEY[k]]}%"></span>`).join('')}</div></div>`).join('');
   return `<div class="stack">
     <h2>${fmtDateLong(d)}</h2>
     <p class="small">狙い:${tg ? `${TARGET_LABEL[tg.target]}(${tg.from === 'day' ? '日の設定' : '週の設定'})` : '未設定'}</p>
@@ -1040,6 +1044,7 @@ function calDetailHtml(d, rs) {
     <div class="list">${items || '<p class="small muted">記録はありません。</p>'}</div>
     <a class="btn ghost" href="#input?date=${d}">この日の記録を追加</a>
     <h3>この日時点の平均</h3>
+    ${nights}
     ${avgBlock(a30n, '直近30回')}
   </div>`;
 }
