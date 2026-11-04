@@ -103,9 +103,10 @@ const Calc = (() => {
 
   // その夜の推定タイプ:その夜より前の平均と比べる
   function estimateType(rec, range = 'count') {
-    const prior = stats(pick(Store.records(), rec.date, range, { before: rec }));
+    const priorRecs = pick(Store.records(), rec.date, range, { before: rec });
+    const prior = stats(priorRecs);
     if (!prior.n) return null;
-    return { ...classify(rec, prior), prior };
+    return { ...classify(rec, prior), prior, priorRecs };
   }
 
   // 今夜の睡眠タイプ予報(推定)。ゲームの基準(直近30回の平均)と、普段の寝方(直近100回の平均。集計外を除き、100件に満たなければ全期間)を比べ、
