@@ -1114,21 +1114,24 @@ function calDetailHtml(d, rs) {
   };
   const items = rs.map(r => {
     const est = Calc.estimateType(r, 'count');
+    // est.prior の呼び名。30回そろって初めて「直近30回ゲーム内平均」と言える。足りない日は実際の回数で書く
+    const full = est && est.prior.n >= RANGE_N;
+    const avgName = full ? `直近${RANGE_N}回ゲーム内平均` : est ? `それまでの${est.prior.n}回の平均` : '';
     return `<div class="stack">
       <div class="row">${rs.length > 1 ? `<span class="ref">${rs.indexOf(r) + 1}件目</span>` : ''}${tchip(r.type)}${r.excluded ? '<span class="exm-tag">集計外</span>' : ''}<span class="small muted">${r.bedTime || '--:--'}〜${r.wakeTime || '--:--'}</span>
         <span class="small">${r.sleepMin != null ? minToHm(r.sleepMin) : ''}</span><a class="btn ghost small" href="#input/${esc(r.id)}" style="margin-left:auto">直す</a></div>
       <div class="stack cmp">
         <div class="avg3 avg3-legend small">${KINDS.map(k => `<span class="pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span>`).join('')}</div>
         ${cmpRow('この夜', k => r[PCT_KEY[k]], String)}
-        ${est ? `${cmpRow('それまでの平均', k => est.prior[k].mean)}
-        <div class="stack avg3-row"><b class="small">平均との差</b>
+        ${est ? `${cmpRow(full ? avgName : `${avgName}(${RANGE_N}回未満)`, k => est.prior[k].mean)}
+        <div class="stack avg3-row"><b class="small">${full ? 'ゲーム内平均' : '平均'}との差</b>
           <div class="avg3 num small">${KINDS.map(k => `<span>${est.diffs[k] >= 0 ? '+' : ''}${est.diffs[k].toFixed(1)}</span>`).join('')}</div></div>` : ''}
       </div>
       ${est ? `<p class="small">推定タイプ:${tchip(est.type)} <span class="guess">推定</span></p>` : '<p class="small muted">これより前の記録がないため、推定タイプは出せません。</p>'}
       ${r.memo ? `<p class="small">メモ:${esc(r.memo)}</p>` : ''}
       <details class="fold rec-about" data-rec="${esc(r.id)}"><summary class="small">この記録について</summary>
         <div class="stack">
-          ${est ? `<p class="small muted">推定タイプは、平均より一番多く出たもの。差が${NEAR_AVG_PT}ポイント未満なら「とくちょうなし」(しきい値は仮)</p>` : ''}
+          ${est ? `<p class="small muted">推定タイプは、${avgName}より一番多く出たもの。差が${NEAR_AVG_PT}ポイント未満なら「とくちょうなし」(しきい値は仮)</p>` : ''}
           <p class="small muted">入力元:${{ manual: '手入力', ocr: 'スクショ', ocr_edited: 'スクショ(修正あり)' }[r.source]}</p>
           <div class="row"><button type="button" class="btn ghost small" data-ex="${esc(r.id)}">${r.excluded ? '集計外を解除' : '傾向の集計に含めない'}</button>
             <span class="small muted">計測ミス・放置など。「自分の傾向」の100回・全期間から外します。直近30回(ゲームの平均)には含まれます。</span></div>
