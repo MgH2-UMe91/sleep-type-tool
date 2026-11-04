@@ -264,6 +264,7 @@ dialog.sheet[open] { display: flex; flex-direction: column; gap: 12px; }
 #toast.show { opacity: 1; }
 dialog { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); padding: 20px; width: min(26rem, calc(100% - 32px)); }
 dialog::backdrop { background: rgba(0,0,0,.45); }
+dialog [tabindex="-1"]:focus { outline: none; } /* 開いたときのフォーカス置き場(見出し)。押せる物ではないので枠は出さない */
 dialog form { display: flex; flex-direction: column; gap: 14px; }
 .hidden { display: none !important; }
 .ocr-debug { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }

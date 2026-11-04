@@ -17,6 +17,18 @@ function toast(msg) {
   clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove('show'), 2200);
 }
 
+// ダイアログ・シートを開く。showModal() の既定は最初の入力欄へフォーカスを移すが、iOS では select なら選択画面が、
+// input ならキーボードが勝手に開く。見出し(target)にフォーカスを置いて、それを避ける。
+// 開く前に入力欄からフォーカスを外すのは、閉じたときにブラウザがそこへ戻して同じことが起きないようにするため
+function showDialog(dlg, target) {
+  const a = document.activeElement;
+  if (a && a.matches('input, select, textarea')) a.blur();
+  target.tabIndex = -1;
+  target.autofocus = true;
+  dlg.showModal();
+  target.focus({ preventScroll: true });
+}
+
 // 確認ダイアログ(ブラウザ標準の confirm は使わない)
 function ask(msg, { ok = 'OK', danger = false, extra = '', cancel = 'やめる' } = {}) {
   const dlg = $('#modal');
@@ -51,7 +63,7 @@ function ask(msg, { ok = 'OK', danger = false, extra = '', cancel = 'やめる' 
     $('#modalCancel').onclick = e => { e.preventDefault(); finish(false); };
     dlg.onclose = () => finish(false);
     dlg.returnValue = '';
-    dlg.showModal();
+    showDialog(dlg, $('#modalMsg'));
   });
 }
 
@@ -806,7 +818,7 @@ function openWeekPlan(ws, onClose) {
   dlg.addEventListener('close', () => finish(true)); // Esc キーで閉じたときも
   dlg.addEventListener('click', e => { if (e.target === dlg || e.target.closest('[data-wp-close]')) dlg.close(); });
   document.body.append(dlg);
-  dlg.showModal();
+  showDialog(dlg, $('h2', dlg));
   dlg.scrollTop = 0;
 }
 
@@ -1031,7 +1043,7 @@ function viewCalendar(root, id, q) {
     $('#sheetAdd', root).setAttribute('href', `#input?date=${day}`);
     history.replaceState(null, '', `#calendar?d=${day}`); // 入力画面から戻ったとき、この日とスクロール位置に戻れるように
     sheet.dataset.day = day;
-    if (!sheet.open) sheet.showModal();
+    if (!sheet.open) showDialog(sheet, $('#daySheetBody h2', root));
     sheet.scrollTop = 0;
   }
   // 閉じたら URL から日付を外す(ほかの画面へ移るときに閉じた場合は、移った先の URL を変えない)
