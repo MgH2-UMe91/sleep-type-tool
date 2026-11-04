@@ -357,16 +357,16 @@ function viewHome(root) {
     ${plan.more ? `<p class="small muted">${esc(plan.more)}</p>` : ''}
     ${plan.kind === 'unset' ? '<a class="btn" href="#targets">狙う週を決める</a>' : '<p class="small"><a href="#targets">狙う週を決める・変える</a></p>'}
   </section>
-  ${plan.kind === 'prep' || plan.kind === 'usual' ? windowCard(today, true) : ''}
   ${missing.length ? `<section class="card"><h2>未入力の日</h2><p class="small muted">直近14日で記録がない日</p>
     <div class="row">${missing.map(d => `<a class="btn ghost small" href="#input?date=${d}">${fmtDate(d)}</a>`).join('')}</div></section>` : ''}
+  ${likelyCard(today, plan)}
+  ${nextWeekCard(today, plan)}
+  ${plan.kind === 'prep' || plan.kind === 'usual' ? windowCard(today, true) : ''}
   <section class="card">
     <h2>平均</h2>
     ${avgRows(today)}
     <p class="small muted"><a href="#stats">詳しい統計・全期間を含む比較</a></p>
   </section>
-  ${likelyCard(today, plan)}
-  ${nextWeekCard(today, plan)}
   ${forecastAbout()}
   <div class="grid2">
     <a class="btn" href="#input">記録を入力</a>
