@@ -865,7 +865,8 @@ function viewCalendar(root, id, q) {
     <div id="calList">${range(from, lastMonth).map(monthHtml).join('')}</div>
     <p class="small muted" style="text-align:center">${Number(lastMonth.slice(0, 4))}年${Number(lastMonth.slice(5))}月まで表示しています</p>
     <button type="button" class="btn today-btn" id="toToday">今日</button>
-    <dialog id="daySheet" class="sheet"><div id="daySheetBody"></div><button type="button" class="btn ghost block" id="sheetClose">閉じる</button></dialog>`;
+    <dialog id="daySheet" class="sheet"><div id="daySheetBody"></div>
+      <div class="sheet-foot"><a class="btn ghost" id="sheetAdd" href="#input">この日の記録を追加</a><button type="button" class="btn ghost" id="sheetClose">閉じる</button></div></dialog>`;
 
   const list = $('#calList', root), topEl = $('#calTop', root);
   // 古い月を追加する。追加した高さぶんスクロール位置をずらして、見ている場所を動かさない
@@ -967,6 +968,7 @@ function viewCalendar(root, id, q) {
   const sheet = $('#daySheet', root);
   function openDay(day) {
     $('#daySheetBody', root).innerHTML = calDetailHtml(day, byDate[day] || []);
+    $('#sheetAdd', root).setAttribute('href', `#input?date=${day}`);
     history.replaceState(null, '', `#calendar?d=${day}`); // 入力画面から戻ったとき、この日とスクロール位置に戻れるように
     sheet.dataset.day = day;
     if (!sheet.open) sheet.showModal();
@@ -987,7 +989,10 @@ function viewCalendar(root, id, q) {
     const cell = $(`button.day[data-d="${day}"]`, list), has = rs.some(x => x.excluded), m = cell && $('.exm', cell);
     if (cell && has && !m) $('.d', cell).insertAdjacentHTML('afterend', '<span class="exm">集計外</span>');
     if (m && !has) m.remove();
-    $('#daySheetBody', root).innerHTML = calDetailHtml(day, rs);
+    // 描き直しても、開いていた「この記録について」は開いたままにする
+    const body = $('#daySheetBody', root), opened = [...$$('details.rec-about[open]', body)].map(el => el.dataset.rec);
+    body.innerHTML = calDetailHtml(day, rs);
+    for (const el of $$('details.rec-about', body)) el.open = opened.includes(el.dataset.rec);
   });
   list.addEventListener('click', e => {
     const bar = e.target.closest('button.bar');
@@ -1014,38 +1019,41 @@ function viewCalendar(root, id, q) {
 function calDetailHtml(d, rs) {
   const tg = Store.targetOf(d);
   const a30n = Calc.averageAt(d, 'count');
+  // 比較の1行:ラベル・帯・割合。列の見出しは比較ブロックに1回だけ
+  const cmpRow = (label, pcts, fmt = fmtPct) => `<div class="stack avg3-row"><b class="small">${label}</b>
+    <div class="avgbar" aria-hidden="true">${KINDS.map(k => `<span class="t-${k}" style="width:${pcts(k)}%"></span>`).join('')}</div>
+    <div class="avg3 num small">${KINDS.map(k => `<span>${fmt(pcts(k))}%</span>`).join('')}</div></div>`;
   const items = rs.map(r => {
     const est = Calc.estimateType(r, 'count');
     return `<div class="stack">
       <div class="row">${rs.length > 1 ? `<span class="ref">${rs.indexOf(r) + 1}件目</span>` : ''}${tchip(r.type)}${r.excluded ? '<span class="exm-tag">集計外</span>' : ''}<span class="small muted">${r.bedTime || '--:--'}〜${r.wakeTime || '--:--'}</span>
         <span class="small">${r.sleepMin != null ? minToHm(r.sleepMin) : ''}</span><a class="btn ghost small" href="#input/${esc(r.id)}" style="margin-left:auto">直す</a></div>
-      <div class="avgtbl">
-        <span></span>${KINDS.map(k => `<span class="h pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span>`).join('')}
-        <span class="h">この夜</span>${KINDS.map(k => `<span class="num">${r[PCT_KEY[k]]}%</span>`).join('')}
-        ${est ? `<span class="h">それまでの平均</span>${KINDS.map(k => `<span class="num">${fmtPct(est.prior[k].mean)}%</span>`).join('')}
-        <span class="h">平均との差</span>${KINDS.map(k => `<span class="num">${est.diffs[k] >= 0 ? '+' : ''}${est.diffs[k].toFixed(1)}</span>`).join('')}` : ''}
+      <div class="stack cmp">
+        <div class="avg3 avg3-legend small">${KINDS.map(k => `<span class="pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span>`).join('')}</div>
+        ${cmpRow('この夜', k => r[PCT_KEY[k]], String)}
+        ${est ? `${cmpRow('それまでの平均', k => est.prior[k].mean)}
+        <div class="stack avg3-row"><b class="small">平均との差</b>
+          <div class="avg3 num small">${KINDS.map(k => `<span>${est.diffs[k] >= 0 ? '+' : ''}${est.diffs[k].toFixed(1)}</span>`).join('')}</div></div>` : ''}
       </div>
-      ${est ? `<p class="small">推定タイプ:${tchip(est.type)} <span class="guess">推定</span> <span class="muted">平均より一番多く出たもの。差が${NEAR_AVG_PT}ポイント未満なら「とくちょうなし」(しきい値は仮)</span></p>` : '<p class="small muted">これより前の記録がないため、推定タイプは出せません。</p>'}
+      ${est ? `<p class="small">推定タイプ:${tchip(est.type)} <span class="guess">推定</span></p>` : '<p class="small muted">これより前の記録がないため、推定タイプは出せません。</p>'}
       ${r.memo ? `<p class="small">メモ:${esc(r.memo)}</p>` : ''}
-      <p class="small muted">入力元:${{ manual: '手入力', ocr: 'スクショ', ocr_edited: 'スクショ(修正あり)' }[r.source]}</p>
-      <div class="row"><button type="button" class="btn ghost small" data-ex="${esc(r.id)}">${r.excluded ? '集計外を解除' : '傾向の集計に含めない'}</button>
-        <span class="small muted">計測ミス・放置など。「自分の傾向」の100回・全期間から外します。直近30回(ゲームの平均)には含まれます。</span></div>
+      <details class="fold rec-about" data-rec="${esc(r.id)}"><summary class="small">この記録について</summary>
+        <div class="stack">
+          ${est ? `<p class="small muted">推定タイプは、平均より一番多く出たもの。差が${NEAR_AVG_PT}ポイント未満なら「とくちょうなし」(しきい値は仮)</p>` : ''}
+          <p class="small muted">入力元:${{ manual: '手入力', ocr: 'スクショ', ocr_edited: 'スクショ(修正あり)' }[r.source]}</p>
+          <div class="row"><button type="button" class="btn ghost small" data-ex="${esc(r.id)}">${r.excluded ? '集計外を解除' : '傾向の集計に含めない'}</button>
+            <span class="small muted">計測ミス・放置など。「自分の傾向」の100回・全期間から外します。直近30回(ゲームの平均)には含まれます。</span></div>
+        </div>
+      </details>
     </div>`;
   }).join('');
-  // その夜を平均と見比べる帯。割合の数字は上の表にあるので、ラベルと帯だけ
-  const nights = rs.map((r, i) => KINDS.some(k => r[PCT_KEY[k]] == null) ? '' : `<div class="stack">
-      <div class="row"><b>この夜${rs.length > 1 ? ` ${i + 1}件目` : ''}</b></div>
-      <div class="avgbar" aria-hidden="true">${KINDS.map(k => `<span class="t-${k}" style="width:${r[PCT_KEY[k]]}%"></span>`).join('')}</div></div>`).join('');
   return `<div class="stack">
     <h2>${fmtDateLong(d)}</h2>
     <p class="small">狙い:${tg ? `${TARGET_LABEL[tg.target]}(${tg.from === 'day' ? '日の設定' : '週の設定'})` : '未設定'}</p>
     ${(() => { const mn = Moon.markOf(d); return mn ? `<p class="small"><span class="moon-tag ${mn.phase}">${MOON_ICON[mn.phase]}${mn.mark}</span> ${MOON_NAME[mn.phase]}:${fmtDate(mn.center)} ${mn.time}(日本時間)${mn.exact ? '' : `。この日は${MOON_NAME[mn.phase]}の${d < mn.center ? '前日' : '翌日'}`}</p>` : ''; })()}
     ${eventListHtml(Events.byDate()[d] || [])}
     <div class="list">${items || '<p class="small muted">記録はありません。</p>'}</div>
-    <a class="btn ghost" href="#input?date=${d}">この日の記録を追加</a>
-    <h3>この日時点の平均</h3>
-    ${nights}
-    ${avgBlock(a30n, '直近30回')}
+    ${rs.length ? avgBlock(a30n, 'この日時点の直近30回(この日を含む)') : `<h3>この日時点の平均</h3>${avgBlock(a30n, '直近30回')}`}
   </div>`;
 }
 
