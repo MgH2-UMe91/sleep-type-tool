@@ -192,7 +192,7 @@ const Calc = (() => {
     const v = {};
     for (const k of KINDS) v[k] = base.n ? base[k].mean : 100 / 3;
     if (mode === 'B' && aim) {
-      const c = counterOf(aim, averageAt(today, 'count')).k;
+      const c = focusOf(aim, today).k;
       const move = Math.min(PREP_SHIFT_PT, v[aim], 100 - v[c]);
       v[aim] -= move; v[c] += move;
     }
@@ -207,7 +207,7 @@ const Calc = (() => {
     for (const k of KINDS) {
       out[k] = n ? { mean: (w.stay.reduce((a, r) => a + r[PCT_KEY[k]], 0) + w.future * fill[k]) / n } : null;
     }
-    if (mode === 'B' && aim) out.counter = counterOf(aim, averageAt(today, 'count')).k;
+    if (mode === 'B' && aim) out.counter = focusOf(aim, today).k;
     return out;
   }
 
@@ -227,6 +227,17 @@ const Calc = (() => {
     for (const t of d.weekTargets) if (KINDS.includes(t.target) && t.weekStart > date) out.push({ start: t.weekStart, k: t.target, week: true });
     for (const t of d.dayTargets) if (KINDS.includes(t.target) && t.date > date && !out.some(o => o.week && o.start <= t.date && t.date <= addDays(o.start, 6) && o.k === t.target)) out.push({ start: t.date, k: t.target, week: false });
     return out.sort((x, y) => x.start < y.start ? -1 : x.start > y.start ? 1 : 0);
+  }
+
+  // 平均に効く範囲(windowDays)に入る狙いを近い順に最大2つ
+  const aimsInWindow = date => { const win = windowDays(date); return upcomingTargets(date).filter(u => daysBetween(date, u.start) <= win).slice(0, 2); };
+
+  // aim の平均を下げるために意識するタイプ。おすすめ・窓カード・来週の予報の B はすべてこれを使う。
+  // 範囲内に別タイプの狙いが2つあれば、どちらでもないタイプ(片方を下げるためにもう片方を増やさない)。それ以外は counterOf
+  function focusOf(aim, date) {
+    const [x, y] = aimsInWindow(date);
+    if (y && x.k !== y.k && (aim === x.k || aim === y.k)) return { k: KINDS.find(t => t !== x.k && t !== y.k), why: '' };
+    return counterOf(aim, averageAt(date, 'count'));
   }
 
   const startLabel = x => x.week ? `${fmtMd(x.start)}週` : `${fmtMd(x.start)}`;
@@ -287,7 +298,7 @@ const Calc = (() => {
           }
           return { proj, ppct, reason };
         };
-        const y = ups[1] && inWin(ups[1]) ? ups[1] : null; // 窓に入る2つ目の狙い
+        const y = aimsInWindow(date)[1] || null; // 窓に入る2つ目の狙い
         const j = judge(x), j2 = y && judge(y), proj = j.proj;
         if (y) after = ups[2];
         if (j.reason && (!y || j2.reason)) {
@@ -295,13 +306,12 @@ const Calc = (() => {
             title: '普段どおり寝る',
             reason: y ? `${lbl(x)}・${lbl(y)}のどちらも、普段通りに寝れば狙う週に出やすい見込みです(推定)。` : j.reason };
         } else if (!y) {
-          const c = counterOf(k, avg);
+          const c = focusOf(k, date);
           plan = { kind: 'prep', type: c.k, aim: k, next, proj,
             title: `${TYPE_LABEL[c.k]}を意識して寝る`,
             reason: `狙い週(${fmtMd(x.start)}〜)の直前30回の見込みで、${TYPE_LABEL[k]}の平均 ${j.ppct}(今日の直近30回は ${pct(k)})→ 下げたい。狙う週の前に${TYPE_LABEL[k]}を少なめにしておくと、狙う週に「平均より多い」になりやすい(推定)。` + (c.why ? `${TYPE_LABEL[c.k]}を選んだ理由:${c.why}。` : '') };
         } else {
-          // 別のタイプの狙いが2つなら、どちらでもないタイプを意識する(片方を下げるためにもう片方を増やさない)
-          const c = y.k === k ? counterOf(k, avg) : { k: KINDS.find(t => t !== k && t !== y.k), why: '' };
+          const c = focusOf(k, date);
           const C = TYPE_LABEL[c.k];
           const only = j.reason ? y : j2.reason ? x : null, ok = only === x ? y : x; // 下げたいのが片方だけのとき
           const why = only ? `${lbl(only)}の平均を下げたいので、${C}を意識。${lbl(ok)}は普段通りでも出やすい見込みです(推定)。`
