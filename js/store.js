@@ -16,6 +16,21 @@ const DEFAULT_SETTINGS = {
   theme: 'auto',            // 'auto' / 'light' / 'dark'
 };
 
+// 週の計画のフィールド(この順でプルダウンに出す)。保存するのは id だけなので、id は変えないこと。増えたらここに足す
+const FIELDS = [
+  { id: 'greengrass', emoji: '🏕️', name: 'ワカクサ本島' },
+  { id: 'cyan', emoji: '🏝️', name: 'シアンの砂浜' },
+  { id: 'taupe', emoji: '🏔️', name: 'トープ洞窟' },
+  { id: 'snowdrop', emoji: '⛄', name: 'ウノハナ雪原' },
+  { id: 'lapis', emoji: '🏞️', name: 'ラピスラズリ湖畔' },
+  { id: 'oldgold', emoji: '🏭', name: 'ゴールド旧発電所' },
+  { id: 'amber', emoji: '🏜️', name: 'アンバー渓谷' },
+  { id: 'greengrass-ex', emoji: '🏕️', name: 'ワカクサ本島 EX' },
+  { id: 'cyan-ex', emoji: '🏝️', name: 'シアンの砂浜 EX' },
+];
+const fieldOf = id => FIELDS.find(f => f.id === id) || null;
+const WEEK_NOTE_MAX = 100; // 週の計画の、夜ごとのメモの文字数
+
 // ---------- 日付のヘルパー(すべて端末のローカル日付) ----------
 const pad2 = n => String(n).padStart(2, '0');
 const ymd = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -77,7 +92,8 @@ const Store = (() => {
 
   function empty() {
     // events:利用者が手で追加・修正・非表示にした公式イベント(events.json と id で合わせ、こちらが優先)
-    return { schemaVersion: SCHEMA_VERSION, records: [], weekTargets: [], dayTargets: [], events: [], settings: { ...DEFAULT_SETTINGS }, lastExportAt: null };
+    // weekPlans:週の計画 { weekStart, field, notes: { 日付: メモ } }。任意の項目で、無いデータ(古いバックアップ)は空として読む
+    return { schemaVersion: SCHEMA_VERSION, records: [], weekTargets: [], dayTargets: [], weekPlans: [], events: [], settings: { ...DEFAULT_SETTINGS }, lastExportAt: null };
   }
 
   // 古い版のデータを今の版にそろえる(版が上がったらここに変換を足す)
@@ -87,6 +103,7 @@ const Store = (() => {
     out.records = Array.isArray(d.records) ? d.records.map(normalizeRecord).filter(Boolean) : [];
     out.weekTargets = Array.isArray(d.weekTargets) ? d.weekTargets.filter(t => isYmd(t.weekStart) && TARGETS.includes(t.target)) : [];
     out.dayTargets = Array.isArray(d.dayTargets) ? d.dayTargets.filter(t => isYmd(t.date) && TARGETS.includes(t.target)) : [];
+    out.weekPlans = Array.isArray(d.weekPlans) ? d.weekPlans.map(cleanWeekPlan).filter(Boolean) : [];
     out.events = Array.isArray(d.events) ? d.events.map(cleanEvent).filter(Boolean) : [];
     // 設定は知っている項目だけを、決まった形の値で受け取る(読み込んだファイルの値をそのまま画面に出さないため)。
     // 試作時の includeNaps、30日/30回の defaultRange など古い項目はここで落ちる
@@ -100,6 +117,20 @@ const Store = (() => {
 
   const TARGETS = ['uto', 'suya', 'gus', 'none'];
   const TYPES = ['none', 'uto', 'suya', 'gus', ''];
+
+  // 週の計画1件をそろえる。週の7日以外のメモと空のメモは落とす。フィールドもメモもない週は null(保存しない)。
+  // field は一覧にない id でも形が正しければ残す(新しい版のバックアップを読んでも消さないため)
+  function cleanWeekPlan(p) {
+    if (!p || typeof p !== 'object' || !isYmd(p.weekStart) || mondayOf(p.weekStart) !== p.weekStart) return null;
+    const src = p.notes && typeof p.notes === 'object' ? p.notes : {}, notes = {};
+    for (let i = 0; i < 7; i++) {
+      const day = addDays(p.weekStart, i), v = src[day];
+      const s = typeof v === 'string' ? v.trim().slice(0, WEEK_NOTE_MAX) : '';
+      if (s) notes[day] = s;
+    }
+    const field = isSafeId(p.field) ? String(p.field) : '';
+    return field || Object.keys(notes).length ? { weekStart: p.weekStart, field, notes } : null;
+  }
 
   // 手で追加・修正・非表示にしたイベント1件をそろえる。入っていた項目だけを残す
   // (「非表示」の印だけの {id, hidden} を、公式の内容を上書きしない形のまま保つため)。不正なら null
@@ -218,6 +249,22 @@ const Store = (() => {
     return null;
   }
 
+  // ---------- 週の計画 ----------
+  const weekPlan = weekStart => get().weekPlans.find(p => p.weekStart === weekStart) || null;
+  function setWeekPlan(weekStart, plan) {
+    const d = get(), p = cleanWeekPlan({ ...plan, weekStart });
+    d.weekPlans = d.weekPlans.filter(x => x.weekStart !== weekStart);
+    if (p) d.weekPlans.push(p);
+    save();
+  }
+  // その日に見せる計画(一覧にあるフィールドと、その夜のメモ)。どちらもなければ null
+  function dayPlan(date) {
+    const p = weekPlan(mondayOf(date));
+    if (!p) return null;
+    const field = fieldOf(p.field), note = p.notes[date] || '';
+    return field || note ? { field, note } : null;
+  }
+
   function setSetting(k, v) { get().settings[k] = v; save(); }
 
   // ---------- 手入力のイベント ----------
@@ -282,7 +329,7 @@ const Store = (() => {
     };
     if (mode === 'replace') {
       d.records = incoming.records;
-      if (isJson) { d.weekTargets = incoming.weekTargets; d.dayTargets = incoming.dayTargets; d.events = incoming.events; if (incoming.hasSettings) d.settings = incoming.settings; }
+      if (isJson) { d.weekTargets = incoming.weekTargets; d.dayTargets = incoming.dayTargets; d.weekPlans = incoming.weekPlans; d.events = incoming.events; if (incoming.hasSettings) d.settings = incoming.settings; }
       commit();
       return { added: incoming.records.length, skipped: 0, invalid };
     }
@@ -293,6 +340,7 @@ const Store = (() => {
     }
     for (const t of incoming.weekTargets) if (!d.weekTargets.some(x => x.weekStart === t.weekStart)) d.weekTargets.push(t);
     for (const t of incoming.dayTargets) if (!d.dayTargets.some(x => x.date === t.date)) d.dayTargets.push(t);
+    for (const p of incoming.weekPlans || []) if (!d.weekPlans.some(x => x.weekStart === p.weekStart)) d.weekPlans.push(p);
     for (const e of incoming.events || []) if (!d.events.some(x => x.id === e.id)) d.events.push(e);
     commit();
     return { added, skipped, invalid };
@@ -300,6 +348,6 @@ const Store = (() => {
 
   function clearAll() { const s = get().settings; db = empty(); db.settings = s; save(); }
 
-  return { load, get, records, upsertRecord, setExcluded, deleteRecord, findDuplicate, findSameDateUnsure, newId, setWeekTarget, setDayTarget, targetOf,
+  return { load, get, records, upsertRecord, setExcluded, deleteRecord, findDuplicate, findSameDateUnsure, newId, setWeekTarget, setDayTarget, targetOf, weekPlan, setWeekPlan, dayPlan,
     setSetting, upsertEvent, removeEvent, exportJson, exportCsv, importText, clearAll, normalizeRecord };
 })();

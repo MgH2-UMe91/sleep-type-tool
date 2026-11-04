@@ -329,6 +329,8 @@ details.manual[open] > summary { margin-bottom: 8px; }
   min-width: 0; padding: 0 5px; border-radius: 4px; cursor: pointer; touch-action: manipulation;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.plan-note { overflow-wrap: anywhere; }
+.wk-bars .wk-tag { border: 0; text-decoration: underline; text-underline-offset: 2px; } /* 下線は押せる印(幅を増やさない) */
 .wk-bars .ev-bar { border: 0; background: #e6dcff; color: #3f2a86; }
 .wk-bars .ev-bar.free { background: #ffe1d6; color: #8a2f12; }
 .wk-bars .moon-bar { border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-align: center; padding: 0 2px; }

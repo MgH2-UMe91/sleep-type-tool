@@ -87,6 +87,7 @@ function route() {
   const [name, id] = path.split('/');
   const q = Object.fromEntries(new URLSearchParams(qs || ''));
   const view = VIEWS[name] ? name : 'home';
+  if (weekSheetDone) weekSheetDone();
   if (cleanup) { cleanup(); cleanup = null; }
   $('#pageTitle').textContent = TITLES[view];
   $('.topbar .byline').hidden = view !== 'home'; // 「for ポケモンスリープ」はアプリ名の横にだけ
@@ -755,6 +756,60 @@ const calState = { y: null, from: null }; // 離れたときのスクロール�
 const ymOf = s => s.slice(0, 7);
 const addMonths = (ym, n) => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; };
 
+// 週の計画のシート。カレンダーの札と狙い設定の両方から開く。入力は変更のたびに保存する(保存ボタンはない)。
+// 画面に左右されないよう body に置き、閉じたら消す。onClose(ws) は内容が変わったときだけ呼ぶ
+let weekSheetDone = null; // 開いているシートを、保存して片づける(画面を移るとき用)
+function openWeekPlan(ws, onClose) {
+  const plan = Store.weekPlan(ws) || { field: '', notes: {} };
+  const wt = Store.get().weekTargets.find(t => t.weekStart === ws && KINDS.includes(t.target));
+  const days = [0, 1, 2, 3, 4, 5, 6].map(i => addDays(ws, i));
+  const dlg = document.createElement('dialog');
+  dlg.className = 'sheet'; dlg.id = 'weekSheet';
+  dlg.innerHTML = `<div class="stack">
+      <h2>${Calc.fmtMd(ws)}週${wt ? ` ${TYPE_LABEL[wt.target]}を狙う週` : ''}</h2>
+      <label class="f">フィールド<select data-wp="field"><option value="">未定</option>
+        ${plan.field && !fieldOf(plan.field) ? `<option value="${esc(plan.field)}" selected>一覧にないフィールド</option>` : ''}
+        ${FIELDS.map(f => `<option value="${esc(f.id)}" ${f.id === plan.field ? 'selected' : ''}>${f.emoji}${esc(f.name)}</option>`).join('')}</select></label>
+      ${days.map(day => `<label class="dayrow"><span>${fmtDate(day)}</span><input type="text" data-wp-day="${day}" maxlength="${WEEK_NOTE_MAX}" autocomplete="off" enterkeyhint="done" placeholder="おこう・予定など" value="${esc(plan.notes[day] || '')}"></label>`).join('')}
+    </div>
+    <button type="button" class="btn ghost block" data-wp-close>閉じる</button>`;
+  let timer = null, dirty = false, changed = false;
+  const save = () => {
+    clearTimeout(timer);
+    if (!dirty) return;
+    dirty = false; changed = true;
+    const notes = Object.fromEntries(days.map(day => [day, $(`[data-wp-day="${day}"]`, dlg).value]));
+    try { Store.setWeekPlan(ws, { field: $('[data-wp="field"]', dlg).value, notes }); }
+    catch (e) { toast('保存できませんでした'); }
+  };
+  dlg.addEventListener('input', () => { dirty = true; clearTimeout(timer); timer = setTimeout(save, 400); });
+  dlg.addEventListener('change', () => { dirty = true; save(); });
+  // キーボードが出たら、シートをその上まで持ち上げて、入力中の欄が隠れないようにする
+  const vv = window.visualViewport;
+  const fit = () => {
+    const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+    dlg.style.marginBottom = kb ? `${kb}px` : '';
+    dlg.style.maxHeight = kb ? `${Math.round(vv.height) - 8}px` : '';
+    const a = document.activeElement;
+    if (kb && a && dlg.contains(a)) a.scrollIntoView({ block: 'center' });
+  };
+  if (vv) { vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); dlg.addEventListener('focusin', fit); }
+  const finish = notify => {
+    if (!dlg.isConnected) return;
+    save();
+    if (vv) { vv.removeEventListener('resize', fit); vv.removeEventListener('scroll', fit); }
+    dlg.remove();
+    weekSheetDone = null;
+    if (changed && notify && onClose) onClose(ws);
+  };
+  weekSheetDone = () => finish(false);
+  dlg.addEventListener('close', () => finish(true)); // Esc キーで閉じたときも
+  dlg.addEventListener('click', e => { if (e.target === dlg || e.target.closest('[data-wp-close]')) dlg.close(); });
+  document.body.append(dlg);
+  dlg.showModal();
+  dlg.scrollTop = 0;
+}
+
 function viewCalendar(root, id, q) {
   const today = todayYmd(), thisMonth = ymOf(today);
   const recs = Store.records(), d = Store.get();
@@ -791,6 +846,11 @@ function viewCalendar(root, id, q) {
   if (restoring && calState.from && calState.from < from) from = calState.from;
   if (restoring && calState.from && calState.from < firstMonth) firstMonth = calState.from; // 前に「さらに前」で広げた分を保つ
   if (from < firstMonth) from = firstMonth;
+
+  // 狙う週の札の文字。フィールドが決まっていれば絵文字だけ前に付ける(幅を増やさないため名前は出さない)
+  const planField = ws => { const p = Store.weekPlan(ws); return p ? fieldOf(p.field) : null; };
+  const tagText = (ws, k) => { const f = planField(ws); return `${f ? f.emoji : ''}${TYPE_LABEL[k]}を狙う週`; };
+  const tagLabel = (ws, k) => { const f = planField(ws); return `${Calc.fmtMd(ws)}週 ${TYPE_LABEL[k]}を狙う週${f ? ` ${f.name}` : ''}。週の計画を開く`; };
 
   function monthHtml(ym) {
     const [y, m] = ym.split('-').map(Number);
@@ -834,7 +894,7 @@ function viewCalendar(root, id, q) {
       const col = day => daysBetween(ws, day) + 1;
       const clip = (a, b) => [a < wfrom ? wfrom : a, b > wto ? wto : b];
       const bars = [];
-      if (wt) bars.push(`<span class="bar wk-tag t-${wt.target} ${wpast ? 'past' : ''}" data-s="1" data-e="1">${TYPE_LABEL[wt.target]}を狙う週</span>`);
+      if (wt) bars.push(`<button type="button" class="bar wk-tag t-${wt.target} ${wpast ? 'past' : ''}" data-ws="${ws}" data-target="${wt.target}" data-s="1" data-e="1" aria-label="${esc(tagLabel(ws, wt.target))}">${esc(tagText(ws, wt.target))}</button>`);
       for (const e of wevs) {
         const [a, b] = clip(e.from, e.to);
         const yami = Events.isYami(e), md = Events.isMoonDay(e);
@@ -859,7 +919,7 @@ function viewCalendar(root, id, q) {
   const range = (a, b) => { const out = []; for (let ym = a; ym <= b; ym = addMonths(ym, 1)) out.push(ym); return out; };
 
   root.innerHTML = `
-    <p class="small muted">緑の点=入力済み(分割睡眠は件数分) · 色と文字=表示タイプ(なし/うと/すや/ぐっ) · 色の帯=狙う週 · 狙○=日ごとの狙い · 紫の線=イベント · 🌕/●=満月・新月の前後</p>
+    <p class="small muted">緑の点=入力済み(分割睡眠は件数分) · 色と文字=表示タイプ(なし/うと/すや/ぐっ) · 色の帯=狙う週(札を押すと週の計画) · 狙○=日ごとの狙い · 紫の線=イベント · 🌕/●=満月・新月の前後</p>
     <p class="small muted">GSD=満月の前後(満月の日と前後1日の計3日)、NMD=新月の前後(新月の日と前後1日の計3日)。${YAMI}=${YAMI_NOTE}イベント</p>
     <div id="calTop" class="small muted cal-more"></div>
     <div id="calList">${range(from, lastMonth).map(monthHtml).join('')}</div>
@@ -994,7 +1054,18 @@ function viewCalendar(root, id, q) {
     body.innerHTML = calDetailHtml(day, rs);
     for (const el of $$('details.rec-about', body)) el.open = opened.includes(el.dataset.rec);
   });
+  // 週の計画を閉じたら札の絵文字を付け直す(月をまたぐ週は札が2つある)
+  const refreshTags = ws => {
+    for (const el of $$(`button.wk-tag[data-ws="${ws}"]`, list)) {
+      el.textContent = tagText(ws, el.dataset.target);
+      el.setAttribute('aria-label', tagLabel(ws, el.dataset.target));
+      el.parentElement.classList.remove('laid');
+    }
+    layoutBars(list);
+  };
   list.addEventListener('click', e => {
+    const tag = e.target.closest('button.wk-tag');
+    if (tag) { openWeekPlan(tag.dataset.ws, refreshTags); return; }
     const bar = e.target.closest('button.bar');
     if (bar) { ask(`${bar.dataset.full}\n${bar.dataset.period}`, { ok: '閉じる', cancel: null }); return; }
     const b = e.target.closest('button.day'); if (b) openDay(b.dataset.d);
@@ -1057,6 +1128,7 @@ function calDetailHtml(d, rs) {
   return `<div class="stack">
     <h2>${fmtDateLong(d)}</h2>
     <p class="small">狙い:${tg ? `${TARGET_LABEL[tg.target]}(${tg.from === 'day' ? '日の設定' : '週の設定'})` : '未設定'}</p>
+    ${(() => { const p = Store.dayPlan(d); return p ? `${p.field ? `<p class="small">フィールド:${p.field.emoji}${esc(p.field.name)}</p>` : ''}${p.note ? `<p class="small plan-note">計画メモ:${esc(p.note)}</p>` : ''}` : ''; })()}
     ${(() => { const mn = Moon.markOf(d); return mn ? `<p class="small"><span class="moon-tag ${mn.phase}">${MOON_ICON[mn.phase]}${mn.mark}</span> ${MOON_NAME[mn.phase]}:${fmtDate(mn.center)} ${mn.time}(日本時間)${mn.exact ? '' : `。この日は${MOON_NAME[mn.phase]}の${d < mn.center ? '前日' : '翌日'}`}</p>` : ''; })()}
     ${eventListHtml(Events.byDate()[d] || [])}
     <div class="list">${items || '<p class="small muted">記録はありません。</p>'}</div>
@@ -1091,6 +1163,8 @@ function viewTargets(root) {
         note = p.kind === 'unset' ? '<span class="small muted">この先の狙う週が未設定です(決めるとおすすめが出ます)</span>'
           : `<span class="small">おすすめ:<b>${esc(p.title)}</b>${p.kind === 'aim' ? '' : `<span class="muted">(次の狙い ${esc(p.next)})</span>`}</span>`;
       }
+      const wp = Store.weekPlan(ws), wf = wp && fieldOf(wp.field), wn = wp ? Object.keys(wp.notes).length : 0;
+      const planSum = [wf ? `${wf.emoji}${esc(wf.name)}` : '', wn ? `メモ${wn}件` : ''].filter(Boolean).join(' · ');
       let days = '';
       for (let i = 0; i < 7; i++) {
         const day = addDays(ws, i);
@@ -1103,6 +1177,7 @@ function viewTargets(root) {
           <select data-week="${ws}" aria-label="${fmtDate(ws)}の週の狙い">${opt(KINDS, aim, '狙わない')}</select>
         </div>
         <div>${note}</div>
+        <div><button type="button" class="btn ghost small" data-plan="${ws}">週の計画${planSum ? `:${planSum}` : ''}</button></div>
         ${evHtml}
         ${(() => { const t = moonTags(ws, addDays(ws, 6)); return t ? `<div class="wk-tags">${t}</div>` : ''; })()}
         <details class="dayover" data-ws="${ws}" ${openDays.has(ws) || overrides.length ? 'open' : ''}><summary>日ごとに変える${overrides.length ? `(${overrides.length}日)` : ''}</summary><div class="stack">${days}</div></details>
@@ -1126,10 +1201,15 @@ function viewTargets(root) {
     if (el.dataset.day) { Store.setDayTarget(el.dataset.day, el.value); toast('日の狙いを保存しました'); }
     const y = window.scrollY; render(); window.scrollTo(0, y); // おすすめは狙いによって変わるので描き直す
   };
+  const onClick = e => {
+    const b = e.target.closest('button[data-plan]');
+    if (b) openWeekPlan(b.dataset.plan, () => { const y = window.scrollY; render(); window.scrollTo(0, y); });
+  };
   root.addEventListener('change', onChange);
+  root.addEventListener('click', onClick);
   render();
   // root(#view)は画面をまたいで使い回すので、離れるときにリスナーを外す
-  return () => root.removeEventListener('change', onChange);
+  return () => { root.removeEventListener('change', onChange); root.removeEventListener('click', onClick); };
 }
 
 // ================= 統計 =================
@@ -1239,7 +1319,7 @@ function viewData(root) {
     <p class="small muted">記録はこの端末のブラウザの中にだけあります。ブラウザのデータを消すと記録も消えるので、ときどき書き出して保管してください。</p>
     <p class="small">記録 <span id="recCount">${d.records.length}</span>件 · 最後の書き出し:${d.lastExportAt ? new Date(d.lastExportAt).toLocaleString('ja-JP') : 'なし'}</p>
     <div class="grid2"><button class="btn" id="expJson">JSONで書き出す</button><button class="btn ghost" id="expCsv">CSVで書き出す</button></div>
-    <p class="small muted">JSON:狙い・設定も含む完全なバックアップ。CSV:記録だけ(表計算ソフト用)。</p>
+    <p class="small muted">JSON:狙い・週の計画・設定も含む完全なバックアップ。CSV:記録だけ(表計算ソフト用)。</p>
   </section>
   <section class="card">
     <h2>読み込み(復元)</h2>
@@ -1261,7 +1341,7 @@ function viewData(root) {
   </section>
   <section class="card">
     <h2>全削除</h2>
-    <p class="small muted">記録・狙い・手で入れたイベントをすべて消します(設定は残ります)。先に書き出しておくのがおすすめです。</p>
+    <p class="small muted">記録・狙い・週の計画・手で入れたイベントをすべて消します(設定は残ります)。先に書き出しておくのがおすすめです。</p>
     <button class="btn danger" id="wipe">すべて削除する</button>
   </section>`;
 
@@ -1286,7 +1366,7 @@ function viewData(root) {
   $('#theme', root).onchange = e => { Store.setSetting('theme', e.target.value); applyTheme(); };
   $('#wipe', root).onclick = async () => {
     const n = Store.get().records.length;
-    const v = await ask(`記録${n}件・狙い・手で入れたイベントをすべて削除します。元に戻せません。続けるには「削除」と入力してください。`,
+    const v = await ask(`記録${n}件・狙い・週の計画・手で入れたイベントをすべて削除します。元に戻せません。続けるには「削除」と入力してください。`,
       { ok: '削除する', danger: true, extra: '<input type="text" aria-label="確認の入力" placeholder="削除" autocomplete="off">' });
     if (v !== '削除') { if (v !== false) toast('入力が「削除」と一致しないため、やめました'); return; }
     Store.clearAll(); toast('すべて削除しました'); viewData(root);
