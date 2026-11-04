@@ -1023,13 +1023,11 @@ function calDetailHtml(d, rs) {
   const cmpRow = (label, pcts, fmt = fmtPct) => `<div class="stack avg3-row"><b class="small">${label}</b>
     <div class="avgbar" aria-hidden="true">${KINDS.map(k => `<span class="t-${k}" style="width:${pcts(k)}%"></span>`).join('')}</div>
     <div class="avg3 num small">${KINDS.map(k => `<span>${fmt(pcts(k))}%</span>`).join('')}</div></div>`;
-  // est.prior に使った記録(この夜は含まない)の範囲と、30回目(一番古い記録)
-  const priorNote = est => {
-    const ps = est.priorRecs, old = ps[0], from = Calc.fmtMd(old.date), to = Calc.fmtMd(ps[ps.length - 1].date);
-    const ex = ps.filter(p => p.excluded).length;
-    const head = `ゲームの平均に使った記録:${from === to ? from : `${from}〜${to}`} の${ps.length}件${ex ? `(うち集計外 ${ex}件)` : ''}`;
-    return ps.length < RANGE_N ? `${head}(${RANGE_N}件に満たないため参考値)`
-      : `${head}。${RANGE_N}回目(一番古い記録)は ${from}${old.bedTime ? ` ${old.bedTime}就寝` : ''}の記録(推定)`;
+  // est.prior に使った記録(この夜は含まない)の30回目(一番古い記録)。30件に満たなければ出さない
+  const oldestNote = est => {
+    if (est.priorRecs.length < RANGE_N) return '';
+    const old = est.priorRecs[0];
+    return `<p class="small muted">${RANGE_N}回目(一番古い記録)は ${Calc.fmtMd(old.date)}${old.bedTime ? ` ${old.bedTime}就寝` : ''}の記録</p>`;
   };
   const items = rs.map(r => {
     const est = Calc.estimateType(r, 'count');
@@ -1051,7 +1049,7 @@ function calDetailHtml(d, rs) {
           <p class="small muted">入力元:${{ manual: '手入力', ocr: 'スクショ', ocr_edited: 'スクショ(修正あり)' }[r.source]}</p>
           <div class="row"><button type="button" class="btn ghost small" data-ex="${esc(r.id)}">${r.excluded ? '集計外を解除' : '傾向の集計に含めない'}</button>
             <span class="small muted">計測ミス・放置など。「自分の傾向」の100回・全期間から外します。直近30回(ゲームの平均)には含まれます。</span></div>
-          ${est ? `<p class="small muted">${priorNote(est)}</p>` : ''}
+          ${est ? oldestNote(est) : ''}
         </div>
       </details>
     </div>`;
