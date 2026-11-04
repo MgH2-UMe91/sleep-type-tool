@@ -85,6 +85,12 @@ input, select, textarea {
   border-radius: 8px; padding: 8px 10px; min-height: 44px; width: 100%; min-width: 0;
 }
 input[type="checkbox"], input[type="radio"] { width: 22px; height: 22px; min-height: 0; accent-color: var(--accent); }
+/* iOS Safari の date は既定の見た目だと枠より広くなり、文字も中央寄せになる。ほかの欄と同じ幅・左寄せにそろえる */
+input[type="date"] {
+  -webkit-appearance: none; appearance: none; display: block;
+  width: 100%; max-width: 100%; min-width: 0; height: 44px; box-sizing: border-box; text-align: left;
+}
+input[type="date"]::-webkit-date-and-time-value { text-align: left; min-height: 1.5em; margin: 0; }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .check { display: flex; align-items: center; gap: 8px; min-height: 44px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
