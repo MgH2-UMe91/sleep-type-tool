@@ -35,8 +35,9 @@ const COMPARE_DIFF_PT = 5;
 // STRONG は実データ57件での検証(差4pt以上を採ると一致率が最良)から。WEAK は仮の値。その夜の推定タイプ(TYPE_RANK_MIN)とは別
 const FORECAST_STRONG_PT = 4;
 const FORECAST_WEAK_PT = 1;
-// 予報の、過去の記録での的中率の目安(%)。実データ57件での検証から。推定
-const FORECAST_HIT_PCT = 75;
+// 予報の、過去の記録での的中率の目安(%)。その夜より前の記録だけで予報を作り、ゲームのタイプと比べた値。
+// 開発者の記録で今夜の予報 12/35夜、来週の予報 11/29夜(集計外を除く)。4択で、夜の数が少ないので幅が大きい
+const FORECAST_HIT_PCT = 35;
 // 怪しい記録の目安:睡眠時間がこれ(分)未満なのにぐっすり。仮の値
 const SUSPECT_SLEEP_MIN = 120;
 
