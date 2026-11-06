@@ -1371,10 +1371,19 @@ function viewData(root) {
   $('#doImp', root).onclick = async () => {
     const file = imp.files[0]; if (!file) return;
     const mode = $('input[name="mode"]:checked', root).value;
-    if (mode === 'replace' && !(await ask(`今の記録(${Store.get().records.length}件)を消して、ファイルの内容で置き換えます。よろしいですか?`, { ok: '上書きする', danger: true }))) return;
     const m = $('#impMsg', root);
+    let text;
+    try { text = await file.text(); } catch (e) { m.className = 'msg err'; m.textContent = '読み込めませんでした:' + e.message; return; }
+    // JSON(名前が .json、または中身が { で始まる。importText と同じ判定)の上書きは、狙い・週の計画・手で入れたイベント(と、ファイルに設定があれば設定)も置き換わる。CSVは記録だけ
+    const isJson = /\.json$/i.test(file.name) || /^\s*\{/.test(text);
+    if (mode === 'replace') {
+      const head = `今の記録(${Store.get().records.length}件)`;
+      const msg = isJson ? `${head}・狙い・週の計画・手で入れたイベントを消して、ファイルの内容で置き換えます(ファイルに設定があれば設定も)。よろしいですか?`
+        : `${head}を消して、ファイルの内容で置き換えます(CSVなので、狙い・週の計画・イベント・設定は今のまま残ります)。よろしいですか?`;
+      if (!(await ask(msg, { ok: '上書きする', danger: true }))) return;
+    }
     try {
-      const r = Store.importText(await file.text(), file.name, mode);
+      const r = Store.importText(text, file.name, mode);
       m.className = 'msg ok';
       m.textContent = `${r.added}件を読み込みました` + (r.skipped ? `(重複${r.skipped}件は読み込みませんでした)` : '') + (r.invalid ? `。形式が不正な${r.invalid}件は読み込めませんでした(日付・時刻・割合の合計100・睡眠時間を確認してください)` : '');
       $('#recCount', root).textContent = Store.get().records.length;
