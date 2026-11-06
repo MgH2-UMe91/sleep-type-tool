@@ -328,10 +328,14 @@ const Store = (() => {
       try { save(); } catch (e) { db = migrate(JSON.parse(before)); throw new Error('端末の保存領域が足りず、読み込めませんでした'); }
     };
     if (mode === 'replace') {
-      d.records = incoming.records;
+      // ファイルの中に同じ記録(id、または日付+就寝時刻)が2つ以上あるときは、最初の1件だけ読み込む(追加読み込みと同じ判定)
+      const kept = [];
+      for (const r of incoming.records) if (!kept.some(x => x.id === r.id || sameSleep(x, r))) kept.push(r);
+      const dups = incoming.records.length - kept.length;
+      d.records = kept;
       if (isJson) { d.weekTargets = incoming.weekTargets; d.dayTargets = incoming.dayTargets; d.weekPlans = incoming.weekPlans; d.events = incoming.events; if (incoming.hasSettings) d.settings = incoming.settings; }
       commit();
-      return { added: incoming.records.length, skipped: 0, invalid };
+      return { added: kept.length, skipped: dups, invalid };
     }
     let added = 0, skipped = 0;
     for (const r of incoming.records) {
