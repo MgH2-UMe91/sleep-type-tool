@@ -6,9 +6,19 @@ const PCT_KEY = { uto: 'utoPct', suya: 'suyaPct', gus: 'gusPct' };
 const TYPE_LABEL = { none: 'とくちょうなし', uto: 'うとうと', suya: 'すやすや', gus: 'ぐっすり', '': '未記録' };
 const TARGET_LABEL = { uto: 'うとうと', suya: 'すやすや', gus: 'ぐっすり', none: '指定なし' };
 const RANGE_N = 30;
-// 推定タイプで「平均に近い」とみなす差(ポイント)。値はまだ仮。
-// 実データ(直近30回がそろう29件)でゲームと一致:5→22件、10→26件、12→25件。ゲームでタイプが付いた夜の最大差は最小 +10.4
-const NEAR_AVG_PT = 10;
+// その夜の推定タイプ(classify)の決め方。ゲームの判定は非公開なので、すべて推定。
+// タイプごとに「その夜の割合が、それまでの直近30回の中で何番目に多いか」を順位(0〜1)にする。順位が一番高いタイプを選び、
+// それが上位3分の1に入らなければ「とくちょうなし」。差のポイントで決めないので、タイプごとの平均やばらつきの違いが人によって違っても同じ式で使える。
+// 順位で見ると、ほぼ100%ぐっすりのような極端な夜が続いても、基準がその大きさに引っ張られない。
+// 2/3 は「3タイプのうち目立つもの」として切りのいい値。開発者の記録60件では 0.66〜0.70 で結果がほぼ同じで、前半だけで決めても 0.68 になった
+const TYPE_RANK_MIN = 2 / 3;
+// 比べる自分の記録がこの件数未満のときは、順位を出さず世界平均と比べる。
+// 公式の説明として紹介されている「1〜2回目は世界平均、3回目以降は自分の過去のデータと比べる」に合わせた値(二次情報)
+const TYPE_OWN_MIN_N = 3;
+// 世界平均の代わりの仮の値(%)と、これより何ポイント多ければタイプが付くとみなすか。
+// 世界平均の数字は公開されていないので、開発者1人の記録に当てはめた値で、他の人に合う保証はない。そのため使うのは最初の2回だけ
+const WORLD_AVG_GUESS = { uto: 22, suya: 50, gus: 28 };
+const WORLD_NEAR_PT = 5;
 // 傾向:狙うタイプが出た夜の割合(全期間)がこれ以上なら「普段どおり寝る」と案内する(%)。仮の値
 const USUAL_RATE_PCT = 40;
 // 傾向を案内に使う最低の件数(タイプのわかる記録)。これ未満では従来の案内にする。仮の値
@@ -22,7 +32,7 @@ const PROJ_USUAL_GAP_PT = 5;
 // 期間の比較で「差が大きい」と印を付ける差(ポイント)。直近30回と比べる。仮の値
 const COMPARE_DIFF_PT = 5;
 // 今夜・来週の睡眠タイプ予報の言い方(ポイント)。いちばん大きいプラスの差が STRONG 以上=「出やすい」、WEAK 以上=「やや◯◯寄り」、それ未満=「とくちょうなし」。
-// STRONG は実データ57件での検証(差4pt以上を採ると一致率が最良)から。WEAK は仮の値。NEAR_AVG_PT(その夜の推定タイプ)とは別
+// STRONG は実データ57件での検証(差4pt以上を採ると一致率が最良)から。WEAK は仮の値。その夜の推定タイプ(TYPE_RANK_MIN)とは別
 const FORECAST_STRONG_PT = 4;
 const FORECAST_WEAK_PT = 1;
 // 予報の、過去の記録での的中率の目安(%)。実データ57件での検証から。推定
@@ -94,20 +104,39 @@ const Calc = (() => {
     .filter(r => !r.excluded && r.sleepMin != null && r.sleepMin < SUSPECT_SLEEP_MIN && (r.type === 'gus' || r.gusPct >= 50))
     .reverse();
 
-  // 割合 rec を平均 prior と比べたときのタイプ:平均より一番多く出たもの。差が NEAR_AVG_PT 未満なら「とくちょうなし」
-  function classify(rec, prior) {
-    let best = null, bestDiff = -Infinity;
+  // 割合 rec と平均 prior のタイプごとの差(ポイント)。日の詳細の表示と予報で使う
+  function diffsFrom(rec, prior) {
     const diffs = {};
-    for (const k of KINDS) { diffs[k] = rec[PCT_KEY[k]] - prior[k].mean; if (diffs[k] > bestDiff) { bestDiff = diffs[k]; best = k; } }
-    return { type: bestDiff < NEAR_AVG_PT ? 'none' : best, diffs };
+    for (const k of KINDS) diffs[k] = rec[PCT_KEY[k]] - prior[k].mean;
+    return diffs;
   }
 
-  // その夜の推定タイプ:その夜より前の平均と比べる
+  // v が vals の中で何番目に多いか(0〜1)。v より少ない記録の割合。同じ値は半分として数える
+  function rankIn(v, vals) {
+    const below = vals.filter(x => x < v).length, same = vals.filter(x => x === v).length;
+    return (below + same / 2) / vals.length;
+  }
+
+  // 割合 rec を、それまでの記録 priorRecs と比べたタイプ(決め方は TYPE_RANK_MIN のコメント)。
+  // 順位が同じタイプは、平均との差が大きいほうにする。basis: 'own'=自分の記録との順位 / 'world'=世界平均の代わりの値との差
+  function classify(rec, priorRecs, prior) {
+    const diffs = diffsFrom(rec, prior);
+    if (priorRecs.length < TYPE_OWN_MIN_N) {
+      const top = KINDS.reduce((a, k) => rec[PCT_KEY[k]] - WORLD_AVG_GUESS[k] > rec[PCT_KEY[a]] - WORLD_AVG_GUESS[a] ? k : a, KINDS[0]);
+      return { type: rec[PCT_KEY[top]] - WORLD_AVG_GUESS[top] >= WORLD_NEAR_PT ? top : 'none', diffs, basis: 'world' };
+    }
+    const ranks = {};
+    for (const k of KINDS) ranks[k] = rankIn(rec[PCT_KEY[k]], priorRecs.map(r => r[PCT_KEY[k]]));
+    const top = KINDS.reduce((a, k) => ranks[k] > ranks[a] || (ranks[k] === ranks[a] && diffs[k] > diffs[a]) ? k : a, KINDS[0]);
+    return { type: ranks[top] > TYPE_RANK_MIN ? top : 'none', diffs, ranks, basis: 'own' };
+  }
+
+  // その夜の推定タイプ:その夜より前の直近30回(集計外も含む)と比べる
   function estimateType(rec, range = 'count') {
     const priorRecs = pick(Store.records(), rec.date, range, { before: rec });
     const prior = stats(priorRecs);
     if (!prior.n) return null;
-    return { ...classify(rec, prior), prior, priorRecs };
+    return { ...classify(rec, priorRecs, prior), prior, priorRecs };
   }
 
   // 今夜の睡眠タイプ予報(推定)。ゲームの基準(直近30回の平均)と、普段の寝方(直近100回の平均。集計外を除き、100件に満たなければ全期間)を比べ、
@@ -115,10 +144,10 @@ const Calc = (() => {
   function likelyTonight(date) {
     const base = tendencyAt(date, 'r30').stats, us = tendencyAt(date, 'r100'), usual = us.stats;
     if (!base.n || !usual.n) return { n: usual.n, enough: false };
-    const c = classify({ utoPct: usual.uto.mean, suyaPct: usual.suya.mean, gusPct: usual.gus.mean }, base);
-    const g = forecastGrade(c.diffs);
+    const diffs = diffsFrom({ utoPct: usual.uto.mean, suyaPct: usual.suya.mean, gusPct: usual.gus.mean }, base);
+    const g = forecastGrade(diffs);
     return { n: usual.n, level: reliability(us.typed), enough: usual.n >= TREND_MIN_N, partial: usual.n < 100,
-      type: g.type, strength: g.strength, top: g.top, diffs: c.diffs, base, usual };
+      type: g.type, strength: g.strength, top: g.top, diffs, base, usual };
   }
 
   // 来週の睡眠タイプ予報(推定)。来週月曜 S の前日までの直近30回(windowAt)の見込み平均を基準に、普段の寝方(likelyTonight と同じ直近100回)と比べる。
@@ -131,9 +160,9 @@ const Calc = (() => {
     const us = tendencyAt(today, 'r100'), usual = us.stats;
     const out = { S, end: addDays(S, 6), w, proj, fixed: w.stay.length, total: proj.n, nights: w.nights, n: usual.n, enough: usual.n >= TREND_MIN_N && proj.n > 0 };
     if (!out.enough) return out;
-    const c = classify({ utoPct: usual.uto.mean, suyaPct: usual.suya.mean, gusPct: usual.gus.mean }, proj);
-    const g = forecastGrade(c.diffs);
-    return { ...out, level: reliability(us.typed), partial: usual.n < 100, type: g.type, strength: g.strength, top: g.top, diffs: c.diffs, usual };
+    const diffs = diffsFrom({ utoPct: usual.uto.mean, suyaPct: usual.suya.mean, gusPct: usual.gus.mean }, proj);
+    const g = forecastGrade(diffs);
+    return { ...out, level: reliability(us.typed), partial: usual.n < 100, type: g.type, strength: g.strength, top: g.top, diffs, usual };
   }
 
   // 予報の言い方:3タイプの差のうち一番大きいプラスの差で、strong(出やすい)/ weak(やや寄り)/ none(とくちょうなし)
@@ -144,7 +173,7 @@ const Calc = (() => {
   }
 
   // ---------- 狙う週に向けたおすすめ ----------
-  // 考え方(推定):タイプはその夜の割合が直近30回の平均より目立って多いもの。
+  // 考え方(推定):タイプはその夜の割合が直近30回の中で目立って多いもの。
   // 狙う週にタイプXを出すには、狙っていない週にXを少なめにして平均を下げておく。効くのは狙い週の直前30回ぶんの夜だけ。
 
   // 狙うタイプの平均を下げるために、狙っていない週に意識するタイプ

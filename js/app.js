@@ -237,7 +237,7 @@ function forecastAbout() {
   if (!Store.records().length) return '';
   return `<details class="card fold" data-fold="forecastAbout" ${foldOpen('forecastAbout') ? 'open' : ''}><summary><h2 class="small-h">予報について</h2></summary>
     <ul class="small about-list">
-      <li><b>考え方</b>:タイプは、その夜の割合が直近30回の平均より目立って多いものになる(推定)。普通に寝たときの割合を「普段の寝方」(直近100回の平均。集計外を除き、100件に満たなければ全期間)とみなし、基準と比べます。差がプラスのタイプほど、普通に寝たときに基準を上回りやすく、出やすいと考えます。</li>
+      <li><b>考え方</b>:タイプは、その夜の割合が直近30回の中で目立って多いものになる(推定)。普通に寝たときの割合を「普段の寝方」(直近100回の平均。集計外を除き、100件に満たなければ全期間)とみなし、基準と比べます。差がプラスのタイプほど、普通に寝たときに基準を上回りやすく、出やすいと考えます。</li>
       <li><b>基準</b>:今夜は直近30回の平均。来週は、来週月曜の前日までの直近30回の見込み平均。</li>
       <li><b>言い方</b>:一番大きいプラスの差が${FORECAST_STRONG_PT}ポイント以上で「出やすい」、${FORECAST_WEAK_PT}〜${FORECAST_STRONG_PT}ポイント未満で「やや◯◯寄り」、${FORECAST_WEAK_PT}ポイント未満なら「とくちょうなし」(しきい値は仮)。</li>
       <li><b>的中率</b>:過去の記録で試すと約${FORECAST_HIT_PCT}%(推定)。</li>
@@ -1125,13 +1125,17 @@ function calDetailHtml(d, rs) {
         ${cmpRow('この夜', k => r[PCT_KEY[k]], String)}
         ${est ? `${cmpRow(full ? avgName : `${avgName}(${RANGE_N}回未満)`, k => est.prior[k].mean)}
         <div class="stack avg3-row"><b class="small">${full ? 'ゲーム内平均' : '平均'}との差</b>
-          <div class="avg3 num small">${KINDS.map(k => `<span>${est.diffs[k] >= 0 ? '+' : ''}${est.diffs[k].toFixed(1)}</span>`).join('')}</div></div>` : ''}
+          <div class="avg3 num small">${KINDS.map(k => `<span>${est.diffs[k] >= 0 ? '+' : ''}${est.diffs[k].toFixed(1)}</span>`).join('')}</div></div>
+        ${est.ranks ? `<div class="stack avg3-row"><b class="small">${full ? `直近${RANGE_N}回` : `それまでの${est.prior.n}回`}の中の位置</b>
+          <div class="avg3 num small">${KINDS.map(k => `<span>上位${Math.round((1 - est.ranks[k]) * 100)}%</span>`).join('')}</div></div>` : ''}` : ''}
       </div>
       ${est ? `<p class="small">推定タイプ:${tchip(est.type)} <span class="guess">推定</span></p>` : '<p class="small muted">これより前の記録がないため、推定タイプは出せません。</p>'}
       ${r.memo ? `<p class="small">メモ:${esc(r.memo)}</p>` : ''}
       <details class="fold rec-about" data-rec="${esc(r.id)}"><summary class="small">この記録について</summary>
         <div class="stack">
-          ${est ? `<p class="small muted">推定タイプは、${avgName}より一番多く出たもの。差が${NEAR_AVG_PT}ポイント未満なら「とくちょうなし」(しきい値は仮)</p>` : ''}
+          ${est ? `<p class="small muted">${est.ranks
+            ? `推定タイプは、この夜の割合が${full ? `直近${RANGE_N}回` : `それまでの${est.prior.n}回`}の中で一番上位だったもの。どのタイプも上位${Math.round((1 - TYPE_RANK_MIN) * 100)}%に入らなければ「とくちょうなし」(決め方もしきい値も推定)`
+            : `記録が${TYPE_OWN_MIN_N}回そろうまでは、世界平均の代わりの仮の値(${KINDS.map(k => `${TYPE_LABEL[k]}${WORLD_AVG_GUESS[k]}%`).join('・')})より${WORLD_NEAR_PT}ポイント以上多いタイプを推定タイプにしています(仮の値)`}</p>` : ''}
           <p class="small muted">入力元:${{ manual: '手入力', ocr: 'スクショ', ocr_edited: 'スクショ(修正あり)' }[r.source]}</p>
           <div class="row"><button type="button" class="btn ghost small" data-ex="${esc(r.id)}">${r.excluded ? '集計外を解除' : '傾向の集計に含めない'}</button>
             <span class="small muted">計測ミス・放置など。「自分の傾向」の100回・全期間から外します。直近30回(ゲームの平均)には含まれます。</span></div>
@@ -1202,7 +1206,7 @@ function viewTargets(root) {
     <section class="card">
       <h2>狙う週を決める</h2>
       <p class="small">タイプを出したい週にだけ、狙うタイプを付けてください。狙わない週は「狙わない」のままで大丈夫です。その週には、次の狙いに向けて意識するタイプを自動で表示します。</p>
-      <p class="small muted">考え方(推定):タイプは、その夜の割合が直近30回の平均より目立って多いものになる。狙う週の前は狙うタイプを少なめにして平均を下げておくと、狙う週に出やすい。週は月曜始まり。</p>
+      <p class="small muted">考え方(推定):タイプは、その夜の割合が直近30回の中で目立って多いものになる。狙う週の前は狙うタイプを少なめにして平均を下げておくと、狙う週に出やすい。週は月曜始まり。</p>
     </section>
     ${windowCard(tonightYmd())}
     <div class="stack" id="tg">${weeks}</div>`;
@@ -1439,7 +1443,7 @@ function viewAbout(root) {
   </section>
   <section class="card">
     <h2>推定について</h2>
-    <p class="small">タイプの決まり方は公式に公開されていません。このアプリでは「その夜の割合が、過去の平均より多く出たタイプになる。平均に近ければとくちょうなし」と<b>推定</b>して提案しています。外れることがあります。</p>
+    <p class="small">タイプの決まり方は公式に公開されていません。このアプリでは「その夜の割合が、直近30回の中で目立って多いタイプになる。どれも目立たなければとくちょうなし」と<b>推定</b>して提案しています。外れることがあります。</p>
   </section>
   <p class="small muted">記録の日付はゲームに表示される日付(就寝日)です。睡眠時間はゲームの表示値を優先します。週は月曜始まり。</p>`;
 }
