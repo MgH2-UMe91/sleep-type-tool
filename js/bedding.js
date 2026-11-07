@@ -268,6 +268,58 @@
     return { kind, icon, main, why, plan, tips, head };
   }
 
+  // ---- 最後に取得した結果の保存(端末の localStorage だけ。バックアップのJSONには入らない)
+  const RESULT_KEY = 'sleep-type-tool-bedding-result';
+  const RESULT_VER = 1;
+  // 1時間ぶんの値を確かめて作り直す(通信で受け取った値にも、保存から読んだ値にも同じ限定をかける)
+  function cleanHour(h) {
+    if (!h || typeof h !== 'object') return null;
+    const t = h.t instanceof Date ? h.t.getTime() : h.t;
+    if (!inRange(t, 0, 4e12) || !inRange(h.temp, -90, 60) || !inRange(h.feel, -130, 80) || !inRange(h.hum, 0, 100)
+      || !inRange(h.wind, 0, 400) || !Number.isInteger(h.code) || h.code < 0 || h.code > 99) return null;
+    return { t: new Date(t), temp: h.temp, feel: h.feel, hum: h.hum, wind: h.wind, code: h.code,
+      pop: inRange(h.pop, 0, 100) ? Math.round(h.pop) : null };
+  }
+  const dumpHour = h => ({ t: h.t.getTime(), temp: h.temp, feel: h.feel, hum: h.hum, wind: h.wind, code: h.code, pop: h.pop });
+  const cleanHours = a => {
+    if (!Array.isArray(a) || a.length < 2 || a.length > 40) return null;
+    const out = a.map(cleanHour);
+    return out.every(Boolean) ? out : null;
+  };
+  function loadResult() {
+    try {
+      const o = JSON.parse(localStorage.getItem(RESULT_KEY) || 'null');
+      if (!o || typeof o !== 'object' || o.v !== RESULT_VER) return null;
+      if (!/^\d{7}$/.test(o.zip) || !Number.isInteger(o.bed) || o.bed < 0 || o.bed > 23 || !Number.isInteger(o.wake) || o.wake < 0 || o.wake > 23) return null;
+      if (!inRange(o.at, 0, 4e12) || !inRange(o.t0, 0, 4e12) || typeof o.day !== 'string' || !/^\d{8}$/.test(o.day)) return null;
+      const addr = safeText(o.addr, 90), tonight = cleanHours(o.tonight), last = cleanHours(o.last);
+      if (!addr || !tonight || !last) return null;
+      let real = null;
+      if (o.real !== null) {
+        const r = o.real && typeof o.real === 'object' ? { temp: safeText(o.real.temp, 20), hum: safeText(o.real.hum, 20), wind: safeText(o.real.wind, 20) } : null;
+        if (!r || !r.temp || !r.hum || !r.wind) return null;
+        real = r;
+      }
+      const why = o.why === '' ? '' : safeText(o.why, 80);
+      if (why === null) return null;
+      if (!Array.isArray(o.avgs) || o.avgs.length !== 4 || !o.avgs.every(v => v === null || inRange(v, -90, 60))) return null;
+      return { v: RESULT_VER, zip: o.zip, bed: o.bed, wake: o.wake, at: o.at, day: o.day, t0: o.t0, addr, tonight, last, real, why, avgs: o.avgs };
+    } catch (e) { return null; }
+  }
+  function saveResult(d) {
+    try {
+      localStorage.setItem(RESULT_KEY, JSON.stringify({ v: RESULT_VER, zip: d.zip, bed: d.bed, wake: d.wake, at: d.at, day: d.day, t0: d.t0, addr: d.addr,
+        tonight: d.tonight.map(dumpHour), last: d.last.map(dumpHour), real: d.real, why: d.why, avgs: d.avgs }));
+    } catch (e) { /* 保存できなくても動く */ }
+  }
+  // 「昼12時より前に見たら『今夜』は昨日の夜から始まった夜」。その基準の日(0時)
+  const tonightBase = now => { const b = new Date(now.getHours() < 12 ? addDays(now, -1) : now); b.setHours(0, 0, 0, 0); return b; };
+  // 同じ日で、同じ郵便番号・時刻で、「今夜」の基準日も同じなら、保存した結果をそのまま使える
+  const isFresh = (d, zip, bed, wake, now) => d.zip === zip && d.bed === bed && d.wake === wake
+    && d.day === ymdKey(now) && d.at <= now.getTime() + 60000 && d.t0 === tonightBase(now).getTime();
+  // 全データ削除から呼ぶ。寝具の郵便番号・時刻・保存した結果を消す
+  window.beddingClear = () => { try { localStorage.removeItem(BEDDING_KEY); localStorage.removeItem(RESULT_KEY); } catch (e) { /* 何もしない */ } };
+
   window.viewBedding = function viewBedding(root) {
     const saved = load();
     const hopt = (from, to, wrap) => { let s = ''; for (let h = from; h <= to; h++) s += `<option value="${wrap ? h % 24 : h}">${wrap ? h % 24 : h}:00</option>`; return s; };
@@ -286,6 +338,7 @@
         <div class="bd-msg" role="alert"></div>
       </section>
       <div class="bd-result" hidden>
+        <div class="bd-status"><span class="bd-stext" role="status"></span><button type="button" class="btn ghost small bd-refresh" title="天気を取り直す">更新</button></div>
         <div class="bd-verdict">
           <div class="bd-head" hidden></div>
           <div class="bd-icon"></div>
@@ -318,7 +371,7 @@
     if (bedEl.value === '') bedEl.value = '23';
     if (wakeEl.value === '') wakeEl.value = '6';
 
-    let ctl = null, lastChart = null, rt = null, runId = 0, left = false;
+    let ctl = null, lastChart = null, rt = null, left = false;
 
     function drawChart(nT, nL, real) {
       const chart = q('.bd-chart');
@@ -391,125 +444,145 @@
       q('.bd-msg').textContent = text;
     }
 
-    async function run(e) {
-      if (e) e.preventDefault();
+    // 通信して、描くのに必要な値をそろえる(保存できる形で返す)
+    async function fetchData(zip, bed, wake, signal) {
+      const loc = await lookupZip(zip, signal);
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}`
+        + `&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m`
+        + `&past_days=5&forecast_days=3&timezone=Asia%2FTokyo`;
+      const w = await getJSON(url, signal);
+      const hr = w && w.hourly;
+      if (!hr || !Array.isArray(hr.time) || !Array.isArray(hr.temperature_2m) || hr.time.length > 400) throw new NetError('天気のデータを受け取れませんでした。しばらくしてからもう一度');
+      const arr = k => Array.isArray(hr[k]) ? hr[k] : [];
+      const H = hr.time.map((t, i) => cleanHour({
+        t: typeof t === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(t) ? new Date(t).getTime() : NaN,
+        temp: arr('temperature_2m')[i], feel: arr('apparent_temperature')[i], hum: arr('relative_humidity_2m')[i],
+        pop: arr('precipitation_probability')[i], code: arr('weather_code')[i], wind: arr('wind_speed_10m')[i]
+      })).filter(Boolean);
+
+      const now = new Date();
+      const t0 = tonightBase(now);
+      const nTonight = nightSlice(H, t0, bed, wake);
+      let nLast = nightSlice(H, addDays(t0, -1), bed, wake);
+      if (nTonight.length < 2 || nLast.length < 2) throw new InputError('天気のデータが足りませんでした');
+      // 昨夜は気象庁アメダスの実測に替える。取れない・欠測のときは Open-Meteo の値のまま
+      let real = null, why = '';
+      try {
+        const am = await amedasNight(loc, nLast, signal);
+        if (am.hours) { nLast = am.hours.map(cleanHour); real = am.names; } else why = am.why;
+        if (nLast.some(h => !h)) { nLast = nightSlice(H, addDays(t0, -1), bed, wake); real = null; why = '実測の値が範囲外だった'; }
+      } catch (err) { if (signal.aborted) throw err; why = '取得できなかった'; }
+      // パジャマ:最近3晩(今夜を含む)の夜の平均気温。0〜3晩前
+      const avgs = [0, 1, 2, 3].map(k => { const n = nightSlice(H, addDays(t0, -k), bed, wake); return n.length ? avg(n.map(h => h.temp)) : null; });
+      return { v: RESULT_VER, zip, bed, wake, at: now.getTime(), day: ymdKey(now), t0: t0.getTime(), addr: loc.addr, tonight: nTonight, last: nLast, real, why, avgs };
+    }
+
+    const hm = d => `${d.getHours()}:${pad2(d.getMinutes())}`;
+
+    // 取得結果を画面に出す。stale があれば、更新できなかった理由つきの「古い情報」表示にする
+    function render(d, stale) {
+      const { zip, bed, wake, tonight: nTonight, last: nLast, real, why } = d;
+      q('.bd-msg').textContent = '';
+      q('.bd-place').textContent = `📍 ${d.addr}(〒${zip.slice(0, 3)}-${zip.slice(3)})`;
+      const at = new Date(d.at), isToday = d.day === ymdKey(new Date());
+      const when = isToday ? `今日 ${hm(at)}` : `${at.getMonth() + 1}/${at.getDate()}`;
+      q('.bd-stext').textContent = stale ? `${when} の情報です。更新できませんでした(${stale})` : `${when} 更新`;
+      q('.bd-status').classList.toggle('stale', !!stale);
+
+      const a = summarize(nTonight), b = summarize(nLast);
+      const v = decide(a, b, bed, nTonight);
+      const pj = t => t >= 22 ? ['夏用', '半袖・薄手', '🩳'] : t >= 15 ? ['春秋用', '長袖・薄手', '👕'] : ['冬用', '長袖・厚手', '🧥'];
+      const cur3 = avg(d.avgs.slice(0, 3).filter(x => x != null));
+      const old3 = avg(d.avgs.slice(1, 4).filter(x => x != null));
+      const [pName, pDesc, pIcon] = pj(cur3), [oName] = pj(Number.isFinite(old3) ? old3 : cur3);
+      const changed = pName !== oName;
+      const pjEl = q('.bd-pj');
+      pjEl.className = 'card bd-pj' + (changed ? ' change' : '');
+      pjEl.innerHTML = `<h2>${pIcon} パジャマ</h2>`
+        + (changed ? `<div class="bd-pmain">そろそろ${pName}パジャマに切り替え</div>` : `<div class="bd-pmain">${pName}パジャマ(${pDesc})</div>`)
+        + `<div class="bd-note">最近3晩の夜の平均気温 ${fmt(cur3)}℃(外の気温)。目安:22℃以上は夏用、15〜22℃は春秋用、15℃未満は冬用。部屋が暖かい家なら1段薄手でもOK。</div>`;
+      q('.bd-verdict').className = 'bd-verdict ' + v.kind;
+      q('.bd-head').textContent = v.head;
+      q('.bd-head').hidden = !v.head;
+      q('.bd-icon').textContent = v.icon;
+      q('.bd-main').textContent = v.main;
+      q('.bd-why').textContent = v.why;
+      q('.bd-plan').innerHTML = v.plan.map(([k, val]) => `<div><span class="k">${k}</span><span class="v">${val}</span></div>`).join('');
+      q('.bd-tips').innerHTML = v.tips.map(s => `<li>${s}</li>`).join('');
+
+      const diff = (x, y) => {
+        const dd = x - y, cls = dd >= 0.5 ? 'up' : dd <= -0.5 ? 'down' : 'flat';
+        const arrow = dd >= 0.5 ? '↑' : dd <= -0.5 ? '↓' : '→';
+        return `<td class="${cls}">${arrow} ${dd > 0 ? '+' : ''}${fmt(dd)}℃</td>`;
+      };
+      const row = (name, x, y) => `<tr><td>${name}</td><td>${fmt(y)}℃</td><td>${fmt(x)}℃</td>${diff(x, y)}</tr>`;
+      // 最低は時刻も添える(昨夜と今夜で時刻が違うことがあるため)
+      const atH = t => `<br><small class="flat">${t.getHours()}時ごろ</small>`;
+      const rowT = (name, x, y, xt, yt) => `<tr><td>${name}</td><td>${fmt(y)}℃${atH(yt)}</td><td>${fmt(x)}℃${atH(xt)}</td>${diff(x, y)}</tr>`;
+      const dh = Math.round(a.hum - b.hum);
+      q('.bd-cmp tbody').innerHTML =
+          row(`寝るとき(${bed}時)`, a.bed, b.bed)
+        + row('入眠2時間平均(体感)', a.earlyFeel, b.earlyFeel)
+        + rowT('最低気温', a.min, b.min, a.minAt, b.minAt)
+        + row(`起きるとき(${wake}時)`, a.wake, b.wake)
+        + `<tr><td>湿度(平均)</td><td>${Math.round(b.hum)}%</td><td>${Math.round(a.hum)}%</td><td class="flat">${dh > 0 ? '+' : ''}${dh}%</td></tr>`;
+      const md = t => `${t.getMonth() + 1}/${t.getDate()}`;
+      q('.bd-nightlabel').textContent = `今夜=${md(nTonight[0].t)} ${bed}時〜${md(nTonight[nTonight.length - 1].t)} ${wake}時 ／ 昨夜=${md(nLast[0].t)}〜${md(nLast[nLast.length - 1].t)}。${real ? '昨夜は気象庁アメダスの実測' : '昨夜は予報元(Open-Meteo)の値'}、今夜は予報です。\n※体感温度は、気温に風や湿度の影響を加えた「人が感じる温度」です。風が強いときや乾燥しているときは、気温より低く出ます。`;
+      const srcEl = q('.bd-srcline');
+      if (real) {
+        srcEl.textContent = `昨夜は実測:気象庁アメダス(${real.hum === real.temp && real.wind === real.temp ? real.temp : `気温 ${real.temp}・湿度 ${real.hum}・風 ${real.wind}`})。体感温度は気温・湿度・風から計算。`;
+      } else {
+        srcEl.textContent = `昨夜の実測(アメダス)は使えなかったので、予報元(Open-Meteo)の値です(${why})。`;
+      }
+      q('.bd-lastth').textContent = real ? '昨夜(実測)' : '昨夜';
+      q('.bd-hours').innerHTML = nTonight.map(h => {
+        const [ic, nm] = WMO(h.code);
+        const isMin = h.t.getTime() === a.minAt.getTime();
+        return `<div class="bd-hr${isMin ? ' min' : ''}" title="${nm}">
+          <div class="t">${h.t.getHours()}時</div>
+          <div class="w">${ic}</div>
+          <div class="c">${Math.round(h.temp)}℃</div>
+          <div class="r">☔${h.pop === null ? '-' : h.pop}%</div></div>`;
+      }).join('');
+      q('.bd-result').hidden = false;
+      lastChart = [nTonight, nLast, !!real];
+      drawChart(nTonight, nLast, !!real);
+    }
+
+    const refreshEl = q('.bd-refresh');
+    let busy = false;
+    // mode: 'open'(画面を開いた) / 'show'(「表示」) / 'refresh'(「更新」)
+    async function run(mode) {
       const zip = toHalf(zipEl.value).replace(/[^0-9]/g, '');
       if (zip.length !== 7) { q('.bd-msg').textContent = '郵便番号は7桁の数字で入れてください'; zipEl.focus(); return; }
       const bed = +bedEl.value, wake = +wakeEl.value;
-      if (ctl) ctl.abort();
+      const cached = loadResult();
+      const same = cached && cached.zip === zip && cached.bed === bed && cached.wake === wake;
+      // 同じ日の同じ内容なら、通信せず保存した結果を出す(更新ボタンのときは取り直す)
+      if (mode !== 'refresh' && same && isFresh(cached, zip, bed, wake, new Date())) { render(cached, null); return; }
+      if (busy) return;   // 通信中の二重実行を防ぐ
+      busy = true; goEl.disabled = true; refreshEl.disabled = true;
       ctl = new AbortController();
-      const my = ++runId;
-      q('.bd-msg').textContent = ''; goEl.disabled = true; q('.bd-place').textContent = '調べています…';
+      q('.bd-msg').textContent = ''; q('.bd-place').textContent = '調べています…';
       try {
-        const loc = await lookupZip(zip, ctl.signal);
-        save({ zip, bed, wake });   // 住所が見つかった番号だけ保存する
-        q('.bd-place').textContent = `📍 ${loc.addr}(〒${zip.slice(0, 3)}-${zip.slice(3)})`;
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}`
-          + `&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m`
-          + `&past_days=5&forecast_days=3&timezone=Asia%2FTokyo`;
-        const w = await getJSON(url, ctl.signal);
-        const hr = w && w.hourly;
-        if (!hr || !Array.isArray(hr.time) || !Array.isArray(hr.temperature_2m)) throw new NetError('天気のデータを受け取れませんでした。しばらくしてからもう一度');
-        if (hr.time.length > 400) throw new NetError('天気のデータを受け取れませんでした。しばらくしてからもう一度');
-        const arr = k => Array.isArray(hr[k]) ? hr[k] : [];
-        const H = hr.time.map((t, i) => ({
-          t: typeof t === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(t) ? new Date(t) : new Date(NaN),
-          temp: arr('temperature_2m')[i], feel: arr('apparent_temperature')[i], hum: arr('relative_humidity_2m')[i],
-          pop: inRange(arr('precipitation_probability')[i], 0, 100) ? Math.round(arr('precipitation_probability')[i]) : null,
-          code: arr('weather_code')[i], wind: arr('wind_speed_10m')[i]
-        })).filter(h => !isNaN(h.t.getTime()) && inRange(h.temp, -90, 60) && inRange(h.feel, -130, 80) && inRange(h.hum, 0, 100)
-          && inRange(h.wind, 0, 400) && Number.isInteger(h.code) && h.code >= 0 && h.code <= 99);
-
-        // 昼12時より前に見たら「今夜」は昨日の夜から始まった夜
-        const now = new Date();
-        const tonightStart = now.getHours() < 12 ? addDays(now, -1) : now;
-        const t0 = new Date(tonightStart); t0.setHours(0, 0, 0, 0);
-        const nTonight = nightSlice(H, t0, bed, wake);
-        let nLast = nightSlice(H, addDays(t0, -1), bed, wake);
-        if (nTonight.length < 2 || nLast.length < 2) throw new InputError('天気のデータが足りませんでした');
-        // 昨夜は気象庁アメダスの実測に替える。取れない・欠測のときは Open-Meteo の値のまま
-        let real = null, why = '';
-        try {
-          const am = await amedasNight(loc, nLast, ctl.signal);
-          if (am.hours) { nLast = am.hours; real = am.names; } else why = am.why;
-        } catch (err) { if (left || my !== runId) return; why = '取得できなかった'; }
-
-        const a = summarize(nTonight), b = summarize(nLast);
-        const v = decide(a, b, bed, nTonight);
-
-        // パジャマ:最近3晩(今夜を含む)の夜の平均気温で決める。1晩前にずらした3晩と違えば「切り替え時」
-        const nightAvg = k => { const n = nightSlice(H, addDays(t0, -k), bed, wake); return n.length ? avg(n.map(h => h.temp)) : null; };
-        const avgs = [0, 1, 2, 3].map(nightAvg);
-        const pj = t => t >= 22 ? ['夏用', '半袖・薄手', '🩳'] : t >= 15 ? ['春秋用', '長袖・薄手', '👕'] : ['冬用', '長袖・厚手', '🧥'];
-        const cur3 = avg(avgs.slice(0, 3).filter(x => x != null));
-        const old3 = avg(avgs.slice(1, 4).filter(x => x != null));
-        const [pName, pDesc, pIcon] = pj(cur3), [oName] = pj(Number.isFinite(old3) ? old3 : cur3);
-        const changed = pName !== oName;
-        const pjEl = q('.bd-pj');
-        pjEl.className = 'card bd-pj' + (changed ? ' change' : '');
-        pjEl.innerHTML = `<h2>${pIcon} パジャマ</h2>`
-          + (changed ? `<div class="bd-pmain">そろそろ${pName}パジャマに切り替え</div>` : `<div class="bd-pmain">${pName}パジャマ(${pDesc})</div>`)
-          + `<div class="bd-note">最近3晩の夜の平均気温 ${fmt(cur3)}℃(外の気温)。目安:22℃以上は夏用、15〜22℃は春秋用、15℃未満は冬用。部屋が暖かい家なら1段薄手でもOK。</div>`;
-        q('.bd-verdict').className = 'bd-verdict ' + v.kind;
-        q('.bd-head').textContent = v.head;
-        q('.bd-head').hidden = !v.head;
-        q('.bd-icon').textContent = v.icon;
-        q('.bd-main').textContent = v.main;
-        q('.bd-why').textContent = v.why;
-        q('.bd-plan').innerHTML = v.plan.map(([k, val]) => `<div><span class="k">${k}</span><span class="v">${val}</span></div>`).join('');
-        q('.bd-tips').innerHTML = v.tips.map(s => `<li>${s}</li>`).join('');
-
-        const diff = (x, y) => {
-          const d = x - y, cls = d >= 0.5 ? 'up' : d <= -0.5 ? 'down' : 'flat';
-          const arrow = d >= 0.5 ? '↑' : d <= -0.5 ? '↓' : '→';
-          return `<td class="${cls}">${arrow} ${d > 0 ? '+' : ''}${fmt(d)}℃</td>`;
-        };
-        const row = (name, x, y) => `<tr><td>${name}</td><td>${fmt(y)}℃</td><td>${fmt(x)}℃</td>${diff(x, y)}</tr>`;
-        // 最低は時刻も添える(昨夜と今夜で時刻が違うことがあるため)
-        const at = d => `<br><small class="flat">${d.getHours()}時ごろ</small>`;
-        const rowT = (name, x, y, xt, yt) => `<tr><td>${name}</td><td>${fmt(y)}℃${at(yt)}</td><td>${fmt(x)}℃${at(xt)}</td>${diff(x, y)}</tr>`;
-        const dh = Math.round(a.hum - b.hum);
-        q('.bd-cmp tbody').innerHTML =
-            row(`寝るとき(${bed}時)`, a.bed, b.bed)
-          + row('入眠2時間平均(体感)', a.earlyFeel, b.earlyFeel)
-          + rowT('最低気温', a.min, b.min, a.minAt, b.minAt)
-          + row(`起きるとき(${wake}時)`, a.wake, b.wake)
-          + `<tr><td>湿度(平均)</td><td>${Math.round(b.hum)}%</td><td>${Math.round(a.hum)}%</td><td class="flat">${dh > 0 ? '+' : ''}${dh}%</td></tr>`;
-        const md = d => `${d.getMonth() + 1}/${d.getDate()}`;
-        q('.bd-nightlabel').textContent = `今夜=${md(nTonight[0].t)} ${bed}時〜${md(nTonight[nTonight.length - 1].t)} ${wake}時 ／ 昨夜=${md(nLast[0].t)}〜${md(nLast[nLast.length - 1].t)}。${real ? '昨夜は気象庁アメダスの実測' : '昨夜は予報元(Open-Meteo)の値'}、今夜は予報です。\n※体感温度は、気温に風や湿度の影響を加えた「人が感じる温度」です。風が強いときや乾燥しているときは、気温より低く出ます。`;
-
-        const srcEl = q('.bd-srcline');
-        if (real) {
-          srcEl.textContent = `昨夜は実測:気象庁アメダス(${real.hum === real.temp && real.wind === real.temp ? real.temp : `気温 ${real.temp}・湿度 ${real.hum}・風 ${real.wind}`})。体感温度は気温・湿度・風から計算。`;
-        } else {
-          srcEl.textContent = `昨夜の実測(アメダス)は使えなかったので、予報元(Open-Meteo)の値です(${why})。`;
-        }
-        q('.bd-lastth').textContent = real ? '昨夜(実測)' : '昨夜';
-        q('.bd-hours').innerHTML = nTonight.map(h => {
-          const [ic, nm] = WMO(h.code);
-          const isMin = h.t.getTime() === a.minAt.getTime();
-          return `<div class="bd-hr${isMin ? ' min' : ''}" title="${nm}">
-            <div class="t">${h.t.getHours()}時</div>
-            <div class="w">${ic}</div>
-            <div class="c">${Math.round(h.temp)}℃</div>
-            <div class="r">☔${h.pop === null ? '-' : h.pop}%</div></div>`;
-        }).join('');
-
-        q('.bd-result').hidden = false;
-        lastChart = [nTonight, nLast, !!real];
-        drawChart(nTonight, nLast, !!real);
+        const data = await fetchData(zip, bed, wake, ctl.signal);
+        if (left) return;
+        save({ zip, bed, wake });   // 住所が見つかって取得できた内容だけ保存する
+        saveResult(data);
+        render(data, null);
       } catch (err) {
-        if (left || my !== runId) return;  // 画面を離れた、または新しい取得に入れ替わった
-        showError(err instanceof NetError || err instanceof InputError ? err.message : '表示できませんでした。もう一度お試しください');
-        q('.bd-result').hidden = true;
-        lastChart = null;
+        if (left) return;  // 画面を離れた
+        const text = err instanceof NetError || err instanceof InputError ? err.message : '表示できませんでした。もう一度お試しください';
+        if (same) { render(cached, text.split('。')[0]); }   // 前の結果を残し、古いことが分かる表示にする
+        else { showError(text); q('.bd-result').hidden = true; lastChart = null; }
       } finally {
-        if (my === runId) goEl.disabled = false;
+        busy = false; goEl.disabled = false; refreshEl.disabled = false;
       }
     }
 
-    q('.bd-form').addEventListener('submit', run);
-    if (saved.zip) run();   // 保存済みの郵便番号があれば、この画面を開いたときに取得する
+    q('.bd-form').addEventListener('submit', e => { e.preventDefault(); run('show'); });
+    refreshEl.addEventListener('click', () => run('refresh'));
+    if (saved.zip) run('open');   // 保存済みの郵便番号があれば、この画面を開いたときに(同じ日の保存結果がなければ)取得する
 
     return () => { left = true; window.removeEventListener('resize', onResize); clearTimeout(rt); if (ctl) ctl.abort(); };
   };

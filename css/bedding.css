@@ -73,3 +73,6 @@
 .bd .bd-night { text-align: center; color: var(--accent); letter-spacing: .08em; margin: 8px 0 0; }
 .bd .bd-foot { color: var(--muted); font-size: .75rem; text-align: center; }
 .bd .bd-foot a { color: inherit; }
+.bd .bd-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .8rem; color: var(--muted); }
+.bd .bd-status.stale .bd-stext { color: var(--warn); }
+.bd .bd-status .btn { flex: none; }
