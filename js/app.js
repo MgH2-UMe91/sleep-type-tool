@@ -90,8 +90,9 @@ const FULL_NAME = `${APP_NAME} for ${FOR_GAME}`;
 // 公式イベントの typeFree(どのタイプのポケモンも出る)の呼び名。内部のデータ名は typeFree のまま
 const YAMI = '【闇鍋】';
 const YAMI_NOTE = 'どのタイプのポケモンも出る';
-const TITLES = { home: APP_NAME, input: '入力', bulk: '入力', calendar: 'カレンダー', targets: '狙い設定', stats: '統計', data: 'データ管理', about: 'このアプリについて', menu: 'メニュー', events: 'イベント' };
-const TAB_OF = { bulk: 'input', targets: 'menu', data: 'menu', about: 'menu', events: 'menu' };
+const TITLES = { home: APP_NAME, bedding: '今夜の寝具', input: '入力', bulk: '入力', calendar: 'カレンダー', targets: '狙い設定', stats: '統計', data: 'データ管理', about: 'このアプリについて', menu: 'メニュー', events: 'イベント' };
+// 入力画面(input・bulk)は下のタブに無い(＋ボタンから入る)ので、どのタブも選択表示にしない
+const TAB_OF = { targets: 'menu', data: 'menu', about: 'menu', events: 'menu' };
 let cleanup = null;
 
 function route() {
@@ -107,6 +108,9 @@ function route() {
   $$('.tabbar a').forEach(a => a.toggleAttribute('aria-current', false));
   const tab = $(`.tabbar a[data-tab="${TAB_OF[view] || view}"]`);
   if (tab) tab.setAttribute('aria-current', 'page');
+  const showFab = view === 'home' || view === 'calendar';
+  $('#fab').hidden = !showFab;
+  document.body.classList.toggle('has-fab', showFab);
   const root = $('#view');
   root.innerHTML = '';
   cleanup = VIEWS[view](root, id, q) || null;
@@ -1427,8 +1431,9 @@ function viewAbout(root) {
   <section class="card">
     <h2>データの扱い</h2>
     <ul class="small" style="margin:0;padding-left:1.2em">
-      <li>記録はこの端末のブラウザの中(localStorage)にだけ保存されます。サーバーには送りません。</li>
+      <li>睡眠の記録はこの端末のブラウザの中(localStorage)にだけ保存されます。サーバーには送りません。</li>
       <li>スクショの読み取りも端末の中で行います(文字認識:Tesseract.js、同梱)。画像は外に送りません。</li>
+      <li>「今夜の寝具」を開いたときだけ通信します。入れた郵便番号を zipcloud に、そこで分かった住所を国土地理院に、住所から分かった緯度経度を Open-Meteo に送り、天気を取ります。ここで保存する郵便番号と時刻は、この端末の中だけに置き、データ管理の書き出しには入りません。</li>
       <li>ログイン・アクセス解析・広告はありません。</li>
       <li>ブラウザのデータを消すと記録も消えます。<a href="#data">データ管理</a>で定期的に書き出してください。</li>
     </ul>
@@ -1436,8 +1441,8 @@ function viewAbout(root) {
   <section class="card">
     <h2>使い方</h2>
     <ol class="small" style="margin:0;padding-left:1.2em">
-      <li>はじめに、過去分のスクショを<a href="#input">入力</a>でまとめて選んで入れると、初日から平均が出ます。</li>
-      <li>毎朝、スクショを<a href="#input">入力</a>で読み取って保存します(1枚でも同じ画面)。手入力もできます。</li>
+      <li>はじめに、過去分のスクショを<a href="#input">入力画面</a>でまとめて選んで入れると、初日から平均が出ます。</li>
+      <li>毎朝、スクショを<a href="#input">入力画面</a>で読み取って保存します(1枚でも同じ画面)。手入力もできます。</li>
       <li><a href="#targets">狙い設定</a>で週ごとの狙いを決めると、ホームに今夜の過ごし方が出ます。</li>
     </ol>
   </section>
@@ -1577,7 +1582,7 @@ function viewEvents(root) {
   return () => root.removeEventListener('click', onClick);
 }
 
-const VIEWS = { home: viewHome, input: viewInput, bulk: viewInput, calendar: viewCalendar, targets: viewTargets, stats: viewStats, data: viewData, about: viewAbout, menu: viewMenu, events: viewEvents };
+const VIEWS = { home: viewHome, bedding: viewBedding, input: viewInput, bulk: viewInput, calendar: viewCalendar, targets: viewTargets, stats: viewStats, data: viewData, about: viewAbout, menu: viewMenu, events: viewEvents };
 
 Store.load();
 applyTheme();

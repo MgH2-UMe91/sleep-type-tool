@@ -4,6 +4,7 @@
 // - css / js / vendor(文字認識一式)/ icons / manifest はキャッシュ優先
 // - events.json はネット優先、読めなければ最後に読めたもの
 // - 記録(localStorage)には触れない
+// 外部API(zipcloud・国土地理院・Open-Meteo)は同じ配信元ではないので、下の fetch の先頭で素通しされ、キャッシュしない
 // index.html で読み込むファイルを増やしたら、下の ASSETS にも足すこと
 const VERSION = new URL(self.location.href).searchParams.get('v') || 'dev';
 const PREFIX = 'sleep-type-tool-';
@@ -12,8 +13,8 @@ const EVENTS_CACHE = PREFIX + 'events';
 const q = '?v=' + VERSION;
 const ASSETS = [
   './', 'index.html',
-  'css/style.css' + q,
-  'js/store.js' + q, 'js/calc.js' + q, 'js/events.js' + q, 'js/moon.js' + q, 'js/ocr.js' + q, 'js/app.js' + q,
+  'css/style.css' + q, 'css/bedding.css' + q,
+  'js/store.js' + q, 'js/calc.js' + q, 'js/events.js' + q, 'js/moon.js' + q, 'js/ocr.js' + q, 'js/bedding.js' + q, 'js/app.js' + q,
   'manifest.webmanifest' + q,
   'icons/apple-touch-icon.png' + q, 'icons/icon-192.png' + q, 'icons/icon-192.png', 'icons/icon-512.png',
   'vendor/tesseract.min.js', 'vendor/worker.min.js',
