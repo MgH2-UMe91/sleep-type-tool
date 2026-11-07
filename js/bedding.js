@@ -1,6 +1,7 @@
 // 今夜の寝具:郵便番号と寝る・起きる時刻から、昨夜と比べた毛布・エアコン・パジャマの目安を出す
 // - 通信はこの画面を開いたとき(保存済みの郵便番号があるとき)と「表示」を押したときだけ。アプリの起動時には通信しない
 //   郵便番号 → zipcloud / 住所 → 国土地理院 / 緯度経度 → Open-Meteo。睡眠の記録は送らない
+//   地名で探すときは、入れた地名だけを国土地理院に送る(zipcloud は使わない)
 // - 郵便番号と時刻は別のキー(BEDDING_KEY)に保存する。記録(sleep-type-tool)とバックアップJSONには入れない
 // - 本体の $ や esc とぶつからないよう、全体を即時関数に閉じて window.viewBedding だけを出す
 (() => {
@@ -18,14 +19,22 @@
   const inRange = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
   const inJapan = (lat, lon) => inRange(lat, JP_RANGE.latMin, JP_RANGE.latMax) && inRange(lon, JP_RANGE.lonMin, JP_RANGE.lonMax);
 
+  // 保存するのは、郵便番号、または地名検索で選んだ場所(名前と緯度経度)。どちらか一方
   const load = () => {
+    const none = { zip: '', place: null, query: '', bed: 23, wake: 6 };
     try {
       const o = JSON.parse(localStorage.getItem(BEDDING_KEY) || '{}') || {};
       const zip = typeof o.zip === 'string' && /^\d{7}$/.test(o.zip) ? o.zip : '';
+      let place = null;
+      if (!zip && o.place && typeof o.place === 'object') {
+        const name = safeText(o.place.name, 40);
+        if (name && inJapan(o.place.lat, o.place.lon)) place = { name, lat: o.place.lat, lon: o.place.lon };
+      }
+      const query = place ? safeText(o.query, 40) || '' : '';
       const bed = Number.isInteger(o.bed) && o.bed >= 0 && o.bed <= 23 ? o.bed : 23;
       const wake = Number.isInteger(o.wake) && o.wake >= 0 && o.wake <= 23 ? o.wake : 6;
-      return { zip, bed, wake };
-    } catch (e) { return { zip: '', bed: 23, wake: 6 }; }
+      return { zip, place: query ? place : null, query, bed, wake };
+    } catch (e) { return none; }
   };
   const save = v => { try { localStorage.setItem(BEDDING_KEY, JSON.stringify(v)); } catch (e) { /* 保存できなくても動く */ } };
 
@@ -68,6 +77,23 @@
       clearTimeout(timer);
       if (signal) signal.removeEventListener('abort', onAbort);
     }
+  }
+
+  // 位置は小数2桁(約1km)に丸めて天気の取得先に送る。予報の精度は変わらず、町の代表点より粗くなる
+  const round2 = v => Math.round(v * 100) / 100;
+  const placeKey = p => `place:${round2(p.lat).toFixed(2)},${round2(p.lon).toFixed(2)}`;
+  // 地名で探す(国土地理院)。使える候補だけを最大6件返す
+  async function searchPlace(text, signal) {
+    const g = await getJSON(`https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(text)}`, signal);
+    const out = [];
+    if (Array.isArray(g)) for (const it of g) {
+      const c = it && it.geometry && it.geometry.coordinates;
+      const name = it && it.properties && safeText(it.properties.title, 40);
+      if (!Array.isArray(c) || !name || !inJapan(c[1], c[0]) || out.some(o => o.name === name)) continue;
+      out.push({ name, lat: c[1], lon: c[0] });
+      if (out.length >= 6) break;
+    }
+    return out;
   }
 
   async function lookupZip(zip, signal) {
@@ -270,7 +296,7 @@
 
   // ---- 最後に取得した結果の保存(端末の localStorage だけ。バックアップのJSONには入らない)
   const RESULT_KEY = 'sleep-type-tool-bedding-result';
-  const RESULT_VER = 1;
+  const RESULT_VER = 2;
   // 1時間ぶんの値を確かめて作り直す(通信で受け取った値にも、保存から読んだ値にも同じ限定をかける)
   function cleanHour(h) {
     if (!h || typeof h !== 'object') return null;
@@ -290,7 +316,7 @@
     try {
       const o = JSON.parse(localStorage.getItem(RESULT_KEY) || 'null');
       if (!o || typeof o !== 'object' || o.v !== RESULT_VER) return null;
-      if (!/^\d{7}$/.test(o.zip) || !Number.isInteger(o.bed) || o.bed < 0 || o.bed > 23 || !Number.isInteger(o.wake) || o.wake < 0 || o.wake > 23) return null;
+      if (typeof o.key !== 'string' || !/^(zip:\d{7}|place:-?\d{1,3}\.\d{2},-?\d{1,3}\.\d{2})$/.test(o.key) || !(o.zip === '' || /^\d{7}$/.test(o.zip)) || !Number.isInteger(o.bed) || o.bed < 0 || o.bed > 23 || !Number.isInteger(o.wake) || o.wake < 0 || o.wake > 23) return null;
       if (!inRange(o.at, 0, 4e12) || !inRange(o.t0, 0, 4e12) || typeof o.day !== 'string' || !/^\d{8}$/.test(o.day)) return null;
       const addr = safeText(o.addr, 90), tonight = cleanHours(o.tonight), last = cleanHours(o.last);
       if (!addr || !tonight || !last) return null;
@@ -303,19 +329,19 @@
       const why = o.why === '' ? '' : safeText(o.why, 80);
       if (why === null) return null;
       if (!Array.isArray(o.avgs) || o.avgs.length !== 4 || !o.avgs.every(v => v === null || inRange(v, -90, 60))) return null;
-      return { v: RESULT_VER, zip: o.zip, bed: o.bed, wake: o.wake, at: o.at, day: o.day, t0: o.t0, addr, tonight, last, real, why, avgs: o.avgs };
+      return { v: RESULT_VER, key: o.key, zip: o.zip, bed: o.bed, wake: o.wake, at: o.at, day: o.day, t0: o.t0, addr, tonight, last, real, why, avgs: o.avgs };
     } catch (e) { return null; }
   }
   function saveResult(d) {
     try {
-      localStorage.setItem(RESULT_KEY, JSON.stringify({ v: RESULT_VER, zip: d.zip, bed: d.bed, wake: d.wake, at: d.at, day: d.day, t0: d.t0, addr: d.addr,
+      localStorage.setItem(RESULT_KEY, JSON.stringify({ v: RESULT_VER, key: d.key, zip: d.zip, bed: d.bed, wake: d.wake, at: d.at, day: d.day, t0: d.t0, addr: d.addr,
         tonight: d.tonight.map(dumpHour), last: d.last.map(dumpHour), real: d.real, why: d.why, avgs: d.avgs }));
     } catch (e) { /* 保存できなくても動く */ }
   }
   // 「昼12時より前に見たら『今夜』は昨日の夜から始まった夜」。その基準の日(0時)
   const tonightBase = now => { const b = new Date(now.getHours() < 12 ? addDays(now, -1) : now); b.setHours(0, 0, 0, 0); return b; };
   // 同じ日で、同じ郵便番号・時刻で、「今夜」の基準日も同じなら、保存した結果をそのまま使える
-  const isFresh = (d, zip, bed, wake, now) => d.zip === zip && d.bed === bed && d.wake === wake
+  const isFresh = (d, key, bed, wake, now) => d.key === key && d.bed === bed && d.wake === wake
     && d.day === ymdKey(now) && d.at <= now.getTime() + 60000 && d.t0 === tonightBase(now).getTime();
   // 全データ削除から呼ぶ。寝具の郵便番号・時刻・保存した結果を消す
   window.beddingClear = () => { try { localStorage.removeItem(BEDDING_KEY); localStorage.removeItem(RESULT_KEY); } catch (e) { /* 何もしない */ } };
@@ -324,11 +350,11 @@
     const saved = load();
     const hopt = (from, to, wrap) => { let s = ''; for (let h = from; h <= to; h++) s += `<option value="${wrap ? h % 24 : h}">${wrap ? h % 24 : h}:00</option>`; return s; };
     root.innerHTML = `<div class="bd">
-      <p class="bd-lead">昨夜と比べて、毛布をどうするか。郵便番号の天気予報から目安を出します。</p>
+      <p class="bd-lead">昨夜と比べて、毛布をどうするか。郵便番号か地名の天気予報から目安を出します。</p>
       <section class="card">
         <form class="bd-form" novalidate>
-          <label class="f">郵便番号
-            <input class="bd-zip" inputmode="numeric" autocomplete="postal-code" placeholder="例 150-0002" maxlength="8">
+          <label class="f bd-locl">郵便番号 か 地名
+            <input class="bd-zip" inputmode="text" enterkeyhint="search" autocomplete="off" placeholder="例 150-0002 / 渋谷区" maxlength="40">
           </label>
           <label class="f">寝る時刻<select class="bd-bed">${hopt(19, 26, true)}</select></label>
           <label class="f">起きる時刻<select class="bd-wake">${hopt(4, 10, false)}</select></label>
@@ -336,6 +362,7 @@
         </form>
         <div class="bd-place" role="status"></div>
         <div class="bd-msg" role="alert"></div>
+        <div class="bd-cands" hidden></div>
       </section>
       <div class="bd-result" hidden>
         <div class="bd-status"><span class="bd-stext" role="status"></span><button type="button" class="btn ghost small bd-refresh" title="天気を取り直す">更新</button></div>
@@ -365,7 +392,8 @@
 
     const q = s => root.querySelector(s);
     const zipEl = q('.bd-zip'), bedEl = q('.bd-bed'), wakeEl = q('.bd-wake'), goEl = q('.bd-go');
-    zipEl.value = saved.zip ? `${saved.zip.slice(0, 3)}-${saved.zip.slice(3)}` : '';
+    zipEl.value = saved.zip ? `${saved.zip.slice(0, 3)}-${saved.zip.slice(3)}` : saved.query;
+    let place = saved.place, placeQuery = saved.query;   // 地名検索で選んだ場所と、そのとき入れた文字
     bedEl.value = String(saved.bed);
     wakeEl.value = String(saved.wake);
     if (bedEl.value === '') bedEl.value = '23';
@@ -445,9 +473,9 @@
     }
 
     // 通信して、描くのに必要な値をそろえる(保存できる形で返す)
-    async function fetchData(zip, bed, wake, signal) {
-      const loc = await lookupZip(zip, signal);
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}`
+    async function fetchData(target, bed, wake, signal) {
+      const loc = target.place ? { addr: target.place.name, lat: target.place.lat, lon: target.place.lon } : await lookupZip(target.zip, signal);
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${round2(loc.lat)}&longitude=${round2(loc.lon)}`
         + `&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m`
         + `&past_days=5&forecast_days=3&timezone=Asia%2FTokyo`;
       const w = await getJSON(url, signal);
@@ -474,16 +502,16 @@
       } catch (err) { if (signal.aborted) throw err; why = '取得できなかった'; }
       // パジャマ:最近3晩(今夜を含む)の夜の平均気温。0〜3晩前
       const avgs = [0, 1, 2, 3].map(k => { const n = nightSlice(H, addDays(t0, -k), bed, wake); return n.length ? avg(n.map(h => h.temp)) : null; });
-      return { v: RESULT_VER, zip, bed, wake, at: now.getTime(), day: ymdKey(now), t0: t0.getTime(), addr: loc.addr, tonight: nTonight, last: nLast, real, why, avgs };
+      return { v: RESULT_VER, key: target.key, zip: target.zip || '', bed, wake, at: now.getTime(), day: ymdKey(now), t0: t0.getTime(), addr: loc.addr, tonight: nTonight, last: nLast, real, why, avgs };
     }
 
     const hm = d => `${d.getHours()}:${pad2(d.getMinutes())}`;
 
     // 取得結果を画面に出す。stale があれば、更新できなかった理由つきの「古い情報」表示にする
     function render(d, stale) {
-      const { zip, bed, wake, tonight: nTonight, last: nLast, real, why } = d;
+      const { bed, wake, tonight: nTonight, last: nLast, real, why } = d;
       q('.bd-msg').textContent = '';
-      q('.bd-place').textContent = `📍 ${d.addr}(〒${zip.slice(0, 3)}-${zip.slice(3)})`;
+      q('.bd-place').textContent = `📍 ${d.addr}${d.zip ? `(〒${d.zip.slice(0, 3)}-${d.zip.slice(3)})` : ''}`;
       const at = new Date(d.at), isToday = d.day === ymdKey(new Date());
       const when = isToday ? `今日 ${hm(at)}` : `${at.getMonth() + 1}/${at.getDate()}`;
       q('.bd-stext').textContent = stale ? `${when} の情報です。更新できませんでした(${stale})` : `${when} 更新`;
@@ -552,29 +580,73 @@
     const refreshEl = q('.bd-refresh');
     let busy = false;
     // mode: 'open'(画面を開いた) / 'show'(「表示」) / 'refresh'(「更新」)
-    async function run(mode) {
-      const zip = toHalf(zipEl.value).replace(/[^0-9]/g, '');
-      if (zip.length !== 7) { q('.bd-msg').textContent = '郵便番号は7桁の数字で入れてください'; zipEl.focus(); return; }
+    const candsEl = q('.bd-cands');
+    const hideCands = () => { candsEl.hidden = true; candsEl.textContent = ''; };
+    // 入れた文字から、取得する場所を決める。郵便番号(7桁)か、地名(国土地理院で探す)
+    // 返り値: { target } / { cands } (候補が複数: 選んでもらう) / { error }
+    async function resolveTarget(text, mode) {
+      const digits = text.replace(/[-ー－\s]/g, '');
+      if (/^\d{7}$/.test(digits)) return { target: { key: `zip:${digits}`, zip: digits, place: null } };
+      if (/^\d+$/.test(digits)) return { error: '郵便番号は7桁の数字で入れてください(地名でも探せます)' };
+      if (text.length < 2) return { error: '地名は2文字以上で入れてください' };
+      if (!safeText(text, 40)) return { error: '地名に使えない文字があります。漢字・ひらがな・カタカナで入れてください' };
+      if (place && placeQuery === text) return { target: { key: placeKey(place), zip: '', place } };   // 前に選んだ場所
+      const list = await searchPlace(text, ctl.signal);
+      if (!list.length) return { error: 'その地名は見つかりませんでした。市区町村名などで試してください' };
+      if (list.length === 1) { place = list[0]; placeQuery = text; return { target: { key: placeKey(place), zip: '', place } }; }
+      return { cands: list };
+    }
+
+    // mode: 'open'(画面を開いた) / 'show'(「表示」) / 'refresh'(「更新」)。chosen: 候補から選んだ場所
+    async function run(mode, chosen) {
+      const text = toHalf(zipEl.value).trim();
+      if (!text) { q('.bd-msg').textContent = '郵便番号か地名を入れてください'; zipEl.focus(); return; }
       const bed = +bedEl.value, wake = +wakeEl.value;
-      const cached = loadResult();
-      const same = cached && cached.zip === zip && cached.bed === bed && cached.wake === wake;
-      // 同じ日の同じ内容なら、通信せず保存した結果を出す(更新ボタンのときは取り直す)
-      if (mode !== 'refresh' && same && isFresh(cached, zip, bed, wake, new Date())) { render(cached, null); return; }
+      hideCands();
       if (busy) return;   // 通信中の二重実行を防ぐ
+      const cached = loadResult();
+      let target = null;
+      // 通信しなくても場所が決まる場合(郵便番号、前に選んだ場所)は、同じ日の保存結果をそのまま出す
+      const digits = text.replace(/[-ー－\s]/g, '');
+      if (chosen) { place = chosen; placeQuery = text; target = { key: placeKey(chosen), zip: '', place: chosen }; }
+      else if (/^\d{7}$/.test(digits)) target = { key: `zip:${digits}`, zip: digits, place: null };
+      else if (place && placeQuery === text) target = { key: placeKey(place), zip: '', place };
+      const same = !!(target && cached && cached.key === target.key && cached.bed === bed && cached.wake === wake);
+      if (mode !== 'refresh' && same && isFresh(cached, target.key, bed, wake, new Date())) { render(cached, null); return; }
       busy = true; goEl.disabled = true; refreshEl.disabled = true;
       ctl = new AbortController();
       q('.bd-msg').textContent = ''; q('.bd-place').textContent = '調べています…';
       try {
-        const data = await fetchData(zip, bed, wake, ctl.signal);
+        if (!target) {
+          const r = await resolveTarget(text, mode);
+          if (left) return;
+          if (r.error) { showError(r.error); q('.bd-result').hidden = true; lastChart = null; return; }
+          if (r.cands) {
+            q('.bd-place').textContent = '';
+            q('.bd-msg').textContent = '';
+            candsEl.textContent = '';
+            const lead = document.createElement('div'); lead.className = 'bd-note'; lead.textContent = 'どの場所ですか?'; candsEl.append(lead);
+            for (const c of r.cands) {
+              const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ghost small'; b.textContent = c.name;
+              b.addEventListener('click', () => run('show', c));
+              candsEl.append(b);
+            }
+            candsEl.hidden = false;
+            q('.bd-result').hidden = true; lastChart = null;
+            return;
+          }
+          target = r.target;
+        }
+        const data = await fetchData(target, bed, wake, ctl.signal);
         if (left) return;
-        save({ zip, bed, wake });   // 住所が見つかって取得できた内容だけ保存する
+        save({ zip: target.zip, place: target.place, query: target.place ? placeQuery : '', bed, wake });   // 取得できた内容だけ保存する
         saveResult(data);
         render(data, null);
       } catch (err) {
         if (left) return;  // 画面を離れた
-        const text = err instanceof NetError || err instanceof InputError ? err.message : '表示できませんでした。もう一度お試しください';
-        if (same) { render(cached, text.split('。')[0]); }   // 前の結果を残し、古いことが分かる表示にする
-        else { showError(text); q('.bd-result').hidden = true; lastChart = null; }
+        const text2 = err instanceof NetError || err instanceof InputError ? err.message : '表示できませんでした。もう一度お試しください';
+        if (same) { render(cached, text2.split('。')[0]); }   // 前の結果を残し、古いことが分かる表示にする
+        else { showError(text2); q('.bd-result').hidden = true; lastChart = null; }
       } finally {
         busy = false; goEl.disabled = false; refreshEl.disabled = false;
       }
@@ -582,7 +654,7 @@
 
     q('.bd-form').addEventListener('submit', e => { e.preventDefault(); run('show'); });
     refreshEl.addEventListener('click', () => run('refresh'));
-    if (saved.zip) run('open');   // 保存済みの郵便番号があれば、この画面を開いたときに(同じ日の保存結果がなければ)取得する
+    if (saved.zip || saved.place) run('open');   // 保存済みの郵便番号があれば、この画面を開いたときに(同じ日の保存結果がなければ)取得する
 
     return () => { left = true; window.removeEventListener('resize', onResize); clearTimeout(rt); if (ctl) ctl.abort(); };
   };

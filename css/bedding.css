@@ -19,7 +19,10 @@
 }
 .bd .bd-lead { color: var(--muted); font-size: .85rem; }
 .bd .bd-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
-.bd .bd-zip { width: 9.5em; letter-spacing: .05em; }
+.bd .bd-locl { flex: 1 1 100%; }
+.bd .bd-zip { width: 100%; }
+.bd .bd-cands { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.bd .bd-cands[hidden] { display: none; }
 .bd .bd-place { font-size: .9rem; color: var(--muted); }
 .bd .bd-msg { font-size: .9rem; color: var(--err); }
 .bd .bd-msg:empty, .bd .bd-place:empty { display: none; }

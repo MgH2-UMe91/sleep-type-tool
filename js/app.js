@@ -1364,7 +1364,7 @@ function viewData(root) {
   </section>
   <section class="card">
     <h2>全削除</h2>
-    <p class="small muted">記録・狙い・週の計画・手で入れたイベント、今夜の寝具の郵便番号・時刻・保存した結果をすべて消します(設定は残ります)。先に書き出しておくのがおすすめです。</p>
+    <p class="small muted">記録・狙い・週の計画・手で入れたイベント、今夜の寝具の郵便番号(または地名)・時刻・保存した結果をすべて消します(設定は残ります)。先に書き出しておくのがおすすめです。</p>
     <button class="btn danger" id="wipe">すべて削除する</button>
   </section>`;
 
@@ -1433,7 +1433,7 @@ function viewAbout(root) {
     <ul class="small" style="margin:0;padding-left:1.2em">
       <li>睡眠の記録はこの端末のブラウザの中(localStorage)にだけ保存されます。サーバーには送りません。</li>
       <li>スクショの読み取りも端末の中で行います(文字認識:Tesseract.js、同梱)。画像は外に送りません。</li>
-      <li>「今夜の寝具」を開いたとき(同じ日にすでに取得した結果があれば通信せず、それを出します)と、「表示」「更新」を押したときだけ通信します。入れた郵便番号を zipcloud に、そこで分かった住所を国土地理院に、住所から分かった緯度経度を Open-Meteo に送り、天気を取ります。昨夜の実測は気象庁のアメダスから取りますが、最寄りの観測地点は端末の中で選ぶので、気象庁へ送るのは地点の番号と日時だけです(位置や郵便番号は送りません)。ここで保存する郵便番号・時刻と、最後に取得した結果(住所・天気の数値)は、この端末の中だけに置き、データ管理の書き出しには入りません。全削除で消えます。</li>
+      <li>「今夜の寝具」を開いたとき(同じ日にすでに取得した結果があれば通信せず、それを出します)と、「表示」「更新」を押したときだけ通信します。入れた郵便番号を zipcloud に、そこで分かった住所を国土地理院に、住所から分かった緯度経度(小数2桁に丸めたもの)を Open-Meteo に送り、天気を取ります。郵便番号の代わりに地名で探したときは、入れた地名だけを国土地理院に送ります(zipcloud は使いません)。昨夜の実測は気象庁のアメダスから取りますが、最寄りの観測地点は端末の中で選ぶので、気象庁へ送るのは地点の番号と日時だけです(位置や郵便番号は送りません)。ここで保存する郵便番号・時刻と、最後に取得した結果(住所・天気の数値)は、この端末の中だけに置き、データ管理の書き出しには入りません。全削除で消えます。</li>
       <li>「今夜の寝具」の出典:天気は <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Weather data by Open-Meteo.com</a>(<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>)、郵便番号から住所は <a href="https://zipcloud.ibsnet.co.jp/" target="_blank" rel="noopener noreferrer">zipcloud</a>、住所から位置は国土地理院の住所検索、昨夜の実測は<a href="https://www.jma.go.jp/jma/index.html" target="_blank" rel="noopener noreferrer">気象庁</a>のアメダス(出典:気象庁ホームページ。気温・湿度・風から体感温度を計算するなど、加工して作成)です。</li>
       <li>ログイン・アクセス解析・広告はありません。</li>
       <li>ブラウザのデータを消すと記録も消えます。<a href="#data">データ管理</a>で定期的に書き出してください。</li>
