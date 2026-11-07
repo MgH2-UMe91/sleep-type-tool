@@ -38,8 +38,8 @@
 .bd .bd-verdict.split { background: linear-gradient(135deg, var(--bd-less-bg), var(--bd-more-bg)); }
 .bd .bd-plan { display: grid; gap: 8px; margin-top: 14px; text-align: left; }
 .bd .bd-plan > div { display: flex; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; color: var(--ink); }
-.bd .bd-plan .k { flex: 0 0 6.5em; font-size: .8rem; color: var(--muted); }
-.bd .bd-plan .v { font-weight: 700; min-width: 0; }
+.bd .bd-plan .k { flex: 0 0 auto; min-width: 5.5em; white-space: nowrap; font-size: .8rem; color: var(--muted); }
+.bd .bd-plan .v { flex: 1 1 0; font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
 .bd .bd-plan .v small { font-weight: 400; color: var(--muted); }
 .bd .bd-tips { margin: 12px 0 0; padding: 0; list-style: none; text-align: left; }
 .bd .bd-tips li { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin-top: 8px; font-size: .9rem; color: var(--ink); }
