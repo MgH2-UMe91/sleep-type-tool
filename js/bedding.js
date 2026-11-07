@@ -217,7 +217,7 @@
         <section class="card bd-pj"></section>
         <p class="bd-night">🌙 良い夢を　おやすみなさい</p>
       </div>
-      <p class="bd-foot">天気:<a href="https://open-meteo.com/" target="_blank" rel="noopener">Weather data by Open-Meteo.com</a>(<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>) ／ 郵便番号→住所:<a href="https://zipcloud.ibsnet.co.jp/" target="_blank" rel="noopener">zipcloud</a> ／ 住所→位置:国土地理院<br>この画面を使うと、郵便番号・住所・緯度経度が上の外部サービスに送られます(睡眠の記録は送りません)。</p>
+      <p class="bd-foot"><a href="https://open-meteo.com/" target="_blank" rel="noopener">Weather data by Open-Meteo.com</a></p>
     </div>`;
 
     const q = s => root.querySelector(s);

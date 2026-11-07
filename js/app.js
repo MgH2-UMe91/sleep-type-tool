@@ -1434,6 +1434,7 @@ function viewAbout(root) {
       <li>睡眠の記録はこの端末のブラウザの中(localStorage)にだけ保存されます。サーバーには送りません。</li>
       <li>スクショの読み取りも端末の中で行います(文字認識:Tesseract.js、同梱)。画像は外に送りません。</li>
       <li>「今夜の寝具」を開いたときだけ通信します。入れた郵便番号を zipcloud に、そこで分かった住所を国土地理院に、住所から分かった緯度経度を Open-Meteo に送り、天気を取ります。ここで保存する郵便番号と時刻は、この端末の中だけに置き、データ管理の書き出しには入りません。</li>
+      <li>「今夜の寝具」の出典:天気は <a href="https://open-meteo.com/" target="_blank" rel="noopener">Weather data by Open-Meteo.com</a>(<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>)、郵便番号から住所は <a href="https://zipcloud.ibsnet.co.jp/" target="_blank" rel="noopener">zipcloud</a>、住所から位置は国土地理院の住所検索です。</li>
       <li>ログイン・アクセス解析・広告はありません。</li>
       <li>ブラウザのデータを消すと記録も消えます。<a href="#data">データ管理</a>で定期的に書き出してください。</li>
     </ul>
