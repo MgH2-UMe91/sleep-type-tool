@@ -7,6 +7,16 @@
   'use strict';
   const BEDDING_KEY = 'sleep-type-tool-bedding';
   const NET_TIMEOUT_MS = 10000;
+  // 外部から受け取る値の範囲(これを外れた値は使わない)
+  const JP_RANGE = { latMin: 20, latMax: 46, lonMin: 122, lonMax: 154 };   // 日本の緯度・経度
+  const AMEDAS_MAX_KM = 40;     // これより遠い観測地点は使わない
+  const AMEDAS_MAX_TRY = 3;     // 要素ごとに、近い順に何地点まで試すか
+  const JMA_BASE = 'https://www.jma.go.jp/bosai/amedas/';
+  // 表示する文字(住所・地点名)は、日本語の文字と数字・記号の短いものだけ。textContent で入れる
+  const SAFE_TEXT = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー々〆ヶ・（）() 　0-9０-９A-Za-zＡ-Ｚａ-ｚ、。~〜－-]+$/u;
+  const safeText = (v, max) => typeof v === 'string' && v.length > 0 && v.length <= max && SAFE_TEXT.test(v) ? v : null;
+  const inRange = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+  const inJapan = (lat, lon) => inRange(lat, JP_RANGE.latMin, JP_RANGE.latMax) && inRange(lon, JP_RANGE.lonMin, JP_RANGE.lonMax);
 
   const load = () => {
     try {
@@ -47,7 +57,7 @@
     if (signal) signal.addEventListener('abort', onAbort);
     const timer = setTimeout(() => ctl.abort(), NET_TIMEOUT_MS);
     try {
-      const r = await fetch(url, { signal: ctl.signal });
+      const r = await fetch(url, { signal: ctl.signal, referrerPolicy: 'no-referrer', credentials: 'omit' });
       if (!r.ok) throw new NetError(`サーバーが応答しませんでした(${r.status})`);
       return await r.json();
     } catch (e) {
@@ -64,16 +74,95 @@
     const z = await getJSON(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${zip}`, signal);
     if (!z || !Array.isArray(z.results) || !z.results.length) throw new InputError('その郵便番号は見つかりませんでした。番号を確かめてください');
     const a = z.results[0];
-    const addr = String(a.address1 || '') + String(a.address2 || '') + String(a.address3 || '');
+    const parts = a ? [a.address1, a.address2, a.address3].map(v => v == null || v === '' ? '' : safeText(v, 30)) : [null];
+    if (parts.some(v => v === null) || !parts[0]) throw new InputError('住所の形式が想定外でした');
+    const addr = parts.join('');
     // 住所 → 緯度経度(国土地理院)。町名で見つからなければ市区町村で
-    for (const q of [addr, String(a.address1 || '') + String(a.address2 || '')]) {
+    for (const q of [addr, parts[0] + parts[1]]) {
       const g = await getJSON(`https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(q)}`, signal);
       if (Array.isArray(g) && g.length && g[0].geometry && Array.isArray(g[0].geometry.coordinates)) {
         const [lon, lat] = g[0].geometry.coordinates;
-        if (Number.isFinite(lat) && Number.isFinite(lon)) return { addr, lat, lon };
+        if (inJapan(lat, lon)) return { addr, lat, lon };
       }
     }
     throw new InputError('場所の位置がわかりませんでした');
+  }
+
+  // ---- 昨夜の値を気象庁アメダスの実測に替える(最寄り地点は端末の中で計算。気象庁へ緯度経度は送らない)
+  const pad2 = n => String(n).padStart(2, '0');
+  const ymdKey = d => `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`;
+  const rad = x => x * Math.PI / 180;
+  const distKm = (a, b) => {
+    const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+    return 6371 * 2 * Math.asin(Math.sqrt(h));
+  };
+  function parseStations(t) {
+    const out = [];
+    if (!t || typeof t !== 'object') return out;
+    for (const [id, s] of Object.entries(t)) {
+      if (!/^\d{5}$/.test(id) || !s || typeof s !== 'object') continue;
+      const la = s.lat, lo = s.lon;
+      if (!Array.isArray(la) || !Array.isArray(lo)) continue;
+      const lat = la[0] + la[1] / 60, lon = lo[0] + lo[1] / 60;
+      const name = safeText(s.kjName, 20);
+      if (!inJapan(lat, lon) || !name || typeof s.elems !== 'string' || !/^[0-9]{8}$/.test(s.elems)) continue;
+      out.push({ id, name, lat, lon, el: s.elems });
+    }
+    return out;
+  }
+  // 観測の要素 → elems の位置(気温・風・湿度)。持っていても欠測のことがあるので、実際の値で確かめる
+  const ELEM = { temp: 0, wind: 2, hum: 5 };
+  const ELEM_NAME = { temp: '気温', hum: '湿度', wind: '風' };
+  // 1地点の、必要な時刻の観測(10分ごとの正時の値)を読む。欠測・品質が正常でない値は入れない
+  async function loadObs(id, hours, signal, memo) {
+    if (memo.has(id)) return memo.get(id);
+    const files = new Set(hours.map(h => `${ymdKey(h.t)}_${pad2(Math.floor(h.t.getHours() / 3) * 3)}`));
+    const data = {};
+    await Promise.all([...files].map(async f => {
+      try { const j = await getJSON(`${JMA_BASE}data/point/${id}/${f}.json`, signal); if (j && typeof j === 'object') Object.assign(data, j); }
+      catch (e) { if (signal && signal.aborted) throw e; /* そのファイルは欠測扱い */ }
+    }));
+    const ok = (a, lo, hi) => Array.isArray(a) && a[1] === 0 && inRange(a[0], lo, hi) ? a[0] : null;
+    const obs = new Map();
+    for (const h of hours) {
+      const o = data[`${ymdKey(h.t)}${pad2(h.t.getHours())}0000`];
+      if (o && typeof o === 'object') obs.set(h.t.getTime(), { temp: ok(o.temp, -60, 60), hum: ok(o.humidity, 0, 100), wind: ok(o.wind, 0, 100) });
+    }
+    memo.set(id, obs);
+    return obs;
+  }
+  // 体感温度(Open-Meteo と同じ式。夜は日射なし): 気温・湿度・風速(m/s)から計算
+  const feelOf = (ta, rh, ws) => ta + 0.348 * (rh / 100 * 6.105 * Math.exp(17.27 * ta / (237.7 + ta))) - 0.70 * ws - 4.25;
+  // 昨夜の各時刻を、気温・湿度・風それぞれ「近い順に、全時刻の値がそろう地点」から集める。そろわなければ why を返す
+  async function amedasNight(loc, nLast, signal) {
+    let table;
+    try { table = await getJSON(`${JMA_BASE}const/amedastable.json`, signal); }
+    catch (e) { if (signal && signal.aborted) throw e; return { why: '気象庁に通信できなかった' }; }
+    const stations = parseStations(table);
+    const memo = new Map();
+    const names = {}, picked = {};
+    for (const key of ['temp', 'hum', 'wind']) {
+      const cands = stations.filter(s => s.el[ELEM[key]] === '1')
+        .map(s => ({ s, d: distKm(loc, s) })).filter(c => c.d <= AMEDAS_MAX_KM)
+        .sort((a, b) => a.d - b.d).slice(0, AMEDAS_MAX_TRY);
+      if (!cands.length) return { why: `${AMEDAS_MAX_KM}km以内に${ELEM_NAME[key]}の観測地点がない` };
+      let found = null;
+      for (const c of cands) {
+        const obs = await loadObs(c.s.id, nLast, signal, memo);
+        if (nLast.every(h => obs.get(h.t.getTime()) && obs.get(h.t.getTime())[key] !== null)) { found = { c, obs }; break; }
+      }
+      if (!found) return { why: `${ELEM_NAME[key]}の観測に欠測がある` };
+      picked[key] = found.obs; names[key] = found.c.s.name;
+    }
+    // 計算式のずれを、同じ時刻の Open-Meteo の体感温度との差(平均)で補正する。今夜(予報)との比べが片寄らないように
+    const bias = avg(nLast.map(h => h.feel - feelOf(h.temp, h.hum, h.wind / 3.6)));
+    const hours = nLast.map(h => {
+      const t = h.t.getTime();
+      const temp = picked.temp.get(t).temp, hum = picked.hum.get(t).hum, ws = picked.wind.get(t).wind;
+      return { t: h.t, temp, feel: feelOf(temp, hum, ws) + (Number.isFinite(bias) ? bias : 0), hum, wind: ws * 3.6, pop: null, code: h.code };
+    });
+    return { hours, names };
   }
 
   // 「夜」=寝る時刻〜起きる時刻(日をまたぐ)
@@ -210,14 +299,15 @@
           <div class="bd-note">青枠が最低気温の時間。☔ は雨の確率。</div>
         </section>
         <section class="card"><h2>今夜と昨夜の比べ</h2>
+          <div class="bd-note bd-srcline"></div>
           <div class="bd-chart"></div>
-          <table class="bd-cmp"><thead><tr><th></th><th>昨夜</th><th>今夜</th><th>差</th></tr></thead><tbody></tbody></table>
+          <table class="bd-cmp"><thead><tr><th></th><th class="bd-lastth">昨夜</th><th>今夜</th><th>差</th></tr></thead><tbody></tbody></table>
           <div class="bd-note pre bd-nightlabel"></div>
         </section>
         <section class="card bd-pj"></section>
         <p class="bd-night">🌙 良い夢を　おやすみなさい</p>
       </div>
-      <p class="bd-foot"><a href="https://open-meteo.com/" target="_blank" rel="noopener">Weather data by Open-Meteo.com</a></p>
+      <p class="bd-foot"><a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Weather data by Open-Meteo.com</a></p>
     </div>`;
 
     const q = s => root.querySelector(s);
@@ -230,7 +320,7 @@
 
     let ctl = null, lastChart = null, rt = null, runId = 0, left = false;
 
-    function drawChart(nT, nL) {
+    function drawChart(nT, nL, real) {
       const chart = q('.bd-chart');
       const n = Math.min(nT.length, nL.length);
       const T = nT.slice(0, n), L = nL.slice(0, n);
@@ -253,7 +343,7 @@
       if (Math.abs(yT - yL) < 12) { if (yT <= yL) { yT -= 6; yL += 6; } else { yT += 6; yL -= 6; } }
       chart.innerHTML = `<div class="bd-legend">
           <span><svg width="22" height="6" aria-hidden="true"><line x1="1" x2="21" y1="3" y2="3" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/></svg>今夜(予報)</span>
-          <span><svg width="22" height="6" aria-hidden="true"><line x1="1" x2="21" y1="3" y2="3" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 4"/></svg>昨夜</span>
+          <span><svg width="22" height="6" aria-hidden="true"><line x1="1" x2="21" y1="3" y2="3" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 4"/></svg>${real ? '昨夜(実測)' : '昨夜'}</span>
         </div>
         <svg class="plot" viewBox="0 0 ${W} ${H}" role="img" aria-label="昨夜と今夜の気温の推移">
           ${g}${xl}
@@ -320,19 +410,29 @@
         const w = await getJSON(url, ctl.signal);
         const hr = w && w.hourly;
         if (!hr || !Array.isArray(hr.time) || !Array.isArray(hr.temperature_2m)) throw new NetError('天気のデータを受け取れませんでした。しばらくしてからもう一度');
+        if (hr.time.length > 400) throw new NetError('天気のデータを受け取れませんでした。しばらくしてからもう一度');
+        const arr = k => Array.isArray(hr[k]) ? hr[k] : [];
         const H = hr.time.map((t, i) => ({
-          t: new Date(t), temp: hr.temperature_2m[i], feel: hr.apparent_temperature[i],
-          hum: hr.relative_humidity_2m[i], pop: hr.precipitation_probability[i],
-          code: hr.weather_code[i], wind: hr.wind_speed_10m[i]
-        })).filter(h => Number.isFinite(h.temp) && Number.isFinite(h.feel) && Number.isFinite(h.hum) && Number.isFinite(h.wind) && Number.isFinite(h.code));
+          t: typeof t === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(t) ? new Date(t) : new Date(NaN),
+          temp: arr('temperature_2m')[i], feel: arr('apparent_temperature')[i], hum: arr('relative_humidity_2m')[i],
+          pop: inRange(arr('precipitation_probability')[i], 0, 100) ? Math.round(arr('precipitation_probability')[i]) : null,
+          code: arr('weather_code')[i], wind: arr('wind_speed_10m')[i]
+        })).filter(h => !isNaN(h.t.getTime()) && inRange(h.temp, -90, 60) && inRange(h.feel, -130, 80) && inRange(h.hum, 0, 100)
+          && inRange(h.wind, 0, 400) && Number.isInteger(h.code) && h.code >= 0 && h.code <= 99);
 
         // 昼12時より前に見たら「今夜」は昨日の夜から始まった夜
         const now = new Date();
         const tonightStart = now.getHours() < 12 ? addDays(now, -1) : now;
         const t0 = new Date(tonightStart); t0.setHours(0, 0, 0, 0);
         const nTonight = nightSlice(H, t0, bed, wake);
-        const nLast = nightSlice(H, addDays(t0, -1), bed, wake);
+        let nLast = nightSlice(H, addDays(t0, -1), bed, wake);
         if (nTonight.length < 2 || nLast.length < 2) throw new InputError('天気のデータが足りませんでした');
+        // 昨夜は気象庁アメダスの実測に替える。取れない・欠測のときは Open-Meteo の値のまま
+        let real = null, why = '';
+        try {
+          const am = await amedasNight(loc, nLast, ctl.signal);
+          if (am.hours) { nLast = am.hours; real = am.names; } else why = am.why;
+        } catch (err) { if (left || my !== runId) return; why = '取得できなかった'; }
 
         const a = summarize(nTonight), b = summarize(nLast);
         const v = decide(a, b, bed, nTonight);
@@ -376,8 +476,15 @@
           + row(`起きるとき(${wake}時)`, a.wake, b.wake)
           + `<tr><td>湿度(平均)</td><td>${Math.round(b.hum)}%</td><td>${Math.round(a.hum)}%</td><td class="flat">${dh > 0 ? '+' : ''}${dh}%</td></tr>`;
         const md = d => `${d.getMonth() + 1}/${d.getDate()}`;
-        q('.bd-nightlabel').textContent = `今夜=${md(nTonight[0].t)} ${bed}時〜${md(nTonight[nTonight.length - 1].t)} ${wake}時 ／ 昨夜=${md(nLast[0].t)}〜${md(nLast[nLast.length - 1].t)}。昨夜は観測に近い値、今夜は予報です。\n※体感温度は、気温に風や湿度の影響を加えた「人が感じる温度」です。風が強いときや乾燥しているときは、気温より低く出ます。`;
+        q('.bd-nightlabel').textContent = `今夜=${md(nTonight[0].t)} ${bed}時〜${md(nTonight[nTonight.length - 1].t)} ${wake}時 ／ 昨夜=${md(nLast[0].t)}〜${md(nLast[nLast.length - 1].t)}。${real ? '昨夜は気象庁アメダスの実測' : '昨夜は予報元(Open-Meteo)の値'}、今夜は予報です。\n※体感温度は、気温に風や湿度の影響を加えた「人が感じる温度」です。風が強いときや乾燥しているときは、気温より低く出ます。`;
 
+        const srcEl = q('.bd-srcline');
+        if (real) {
+          srcEl.textContent = `昨夜は実測:気象庁アメダス(${real.hum === real.temp && real.wind === real.temp ? real.temp : `気温 ${real.temp}・湿度 ${real.hum}・風 ${real.wind}`})。体感温度は気温・湿度・風から計算。`;
+        } else {
+          srcEl.textContent = `昨夜の実測(アメダス)は使えなかったので、予報元(Open-Meteo)の値です(${why})。`;
+        }
+        q('.bd-lastth').textContent = real ? '昨夜(実測)' : '昨夜';
         q('.bd-hours').innerHTML = nTonight.map(h => {
           const [ic, nm] = WMO(h.code);
           const isMin = h.t.getTime() === a.minAt.getTime();
@@ -385,12 +492,12 @@
             <div class="t">${h.t.getHours()}時</div>
             <div class="w">${ic}</div>
             <div class="c">${Math.round(h.temp)}℃</div>
-            <div class="r">☔${h.pop ?? '-'}%</div></div>`;
+            <div class="r">☔${h.pop === null ? '-' : h.pop}%</div></div>`;
         }).join('');
 
         q('.bd-result').hidden = false;
-        lastChart = [nTonight, nLast];
-        drawChart(nTonight, nLast);
+        lastChart = [nTonight, nLast, !!real];
+        drawChart(nTonight, nLast, !!real);
       } catch (err) {
         if (left || my !== runId) return;  // 画面を離れた、または新しい取得に入れ替わった
         showError(err instanceof NetError || err instanceof InputError ? err.message : '表示できませんでした。もう一度お試しください');
