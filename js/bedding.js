@@ -328,7 +328,7 @@
       <section class="card">
         <form class="bd-form" novalidate>
           <label class="f">郵便番号
-            <input class="bd-zip" inputmode="numeric" autocomplete="postal-code" placeholder="例 100-0001" maxlength="8">
+            <input class="bd-zip" inputmode="numeric" autocomplete="postal-code" placeholder="例 150-0002" maxlength="8">
           </label>
           <label class="f">寝る時刻<select class="bd-bed">${hopt(19, 26, true)}</select></label>
           <label class="f">起きる時刻<select class="bd-wake">${hopt(4, 10, false)}</select></label>

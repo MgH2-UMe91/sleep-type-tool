@@ -108,7 +108,7 @@ function route() {
   $$('.tabbar a').forEach(a => a.toggleAttribute('aria-current', false));
   const tab = $(`.tabbar a[data-tab="${TAB_OF[view] || view}"]`);
   if (tab) tab.setAttribute('aria-current', 'page');
-  const showFab = view === 'home' || view === 'calendar';
+  const showFab = view === 'calendar';   // ＋ボタンはカレンダーだけ(ホームには出さない)
   $('#fab').hidden = !showFab;
   document.body.classList.toggle('has-fab', showFab);
   const root = $('#view');
