@@ -258,6 +258,7 @@ dialog.sheet[open] { display: flex; flex-direction: column; gap: 12px; }
 }
 .tabbar a { white-space: nowrap; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 58px; font-size: .72rem; color: var(--muted); text-decoration: none; }
 .tabbar a .ic { font-size: 1.25rem; line-height: 1.1; }
+.tabbar a .ic-svg { display: block; width: 22px; height: 22px; margin: 0 auto; }
 .tabbar a[aria-current="page"] { color: var(--accent); font-weight: 700; }
 
 #toast { position: fixed; left: 50%; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 16px; border-radius: 99px; font-size: .9rem; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; max-width: calc(100% - 32px); }
