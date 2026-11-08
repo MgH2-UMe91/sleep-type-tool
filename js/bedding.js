@@ -296,7 +296,7 @@
 
   // ---- 最後に取得した結果の保存(端末の localStorage だけ。バックアップのJSONには入らない)
   const RESULT_KEY = 'sleep-type-tool-bedding-result';
-  const RESULT_VER = 2;
+  const RESULT_VER = 3;
   // 1時間ぶんの値を確かめて作り直す(通信で受け取った値にも、保存から読んだ値にも同じ限定をかける)
   function cleanHour(h) {
     if (!h || typeof h !== 'object') return null;
@@ -319,7 +319,7 @@
       if (typeof o.key !== 'string' || !/^(zip:\d{7}|place:-?\d{1,3}\.\d{2},-?\d{1,3}\.\d{2})$/.test(o.key) || !(o.zip === '' || /^\d{7}$/.test(o.zip)) || !Number.isInteger(o.bed) || o.bed < 0 || o.bed > 23 || !Number.isInteger(o.wake) || o.wake < 0 || o.wake > 23) return null;
       if (!inRange(o.at, 0, 4e12) || !inRange(o.t0, 0, 4e12) || typeof o.day !== 'string' || !/^\d{8}$/.test(o.day)) return null;
       const addr = safeText(o.addr, 90), tonight = cleanHours(o.tonight), last = cleanHours(o.last);
-      if (!addr || !tonight || !last) return null;
+      if (!addr || !tonight || !last || !inJapan(o.lat, o.lon)) return null;
       let real = null;
       if (o.real !== null) {
         const r = o.real && typeof o.real === 'object' ? { temp: safeText(o.real.temp, 20), hum: safeText(o.real.hum, 20), wind: safeText(o.real.wind, 20) } : null;
@@ -329,12 +329,12 @@
       const why = o.why === '' ? '' : safeText(o.why, 80);
       if (why === null) return null;
       if (!Array.isArray(o.avgs) || o.avgs.length !== 4 || !o.avgs.every(v => v === null || inRange(v, -90, 60))) return null;
-      return { v: RESULT_VER, key: o.key, zip: o.zip, bed: o.bed, wake: o.wake, at: o.at, day: o.day, t0: o.t0, addr, tonight, last, real, why, avgs: o.avgs };
+      return { v: RESULT_VER, key: o.key, zip: o.zip, lat: o.lat, lon: o.lon, bed: o.bed, wake: o.wake, at: o.at, day: o.day, t0: o.t0, addr, tonight, last, real, why, avgs: o.avgs };
     } catch (e) { return null; }
   }
   function saveResult(d) {
     try {
-      localStorage.setItem(RESULT_KEY, JSON.stringify({ v: RESULT_VER, key: d.key, zip: d.zip, bed: d.bed, wake: d.wake, at: d.at, day: d.day, t0: d.t0, addr: d.addr,
+      localStorage.setItem(RESULT_KEY, JSON.stringify({ v: RESULT_VER, key: d.key, zip: d.zip, lat: d.lat, lon: d.lon, bed: d.bed, wake: d.wake, at: d.at, day: d.day, t0: d.t0, addr: d.addr,
         tonight: d.tonight.map(dumpHour), last: d.last.map(dumpHour), real: d.real, why: d.why, avgs: d.avgs }));
     } catch (e) { /* 保存できなくても動く */ }
   }
@@ -344,9 +344,304 @@
   const isFresh = (d, key, bed, wake, now) => d.key === key && d.bed === bed && d.wake === wake
     && d.day === ymdKey(now) && d.at <= now.getTime() + 60000 && d.t0 === tonightBase(now).getTime();
   // 全データ削除から呼ぶ。寝具の郵便番号・時刻・保存した結果を消す
-  window.beddingClear = () => { try { localStorage.removeItem(BEDDING_KEY); localStorage.removeItem(RESULT_KEY); } catch (e) { /* 何もしない */ } };
+  window.beddingClear = () => { try { localStorage.removeItem(BEDDING_KEY); localStorage.removeItem(RESULT_KEY); localStorage.removeItem(REVIEW_KEY); } catch (e) { /* 何もしない */ } };
 
-  window.viewBedding = function viewBedding(root) {
+  // ---- 昨夜のふりかえり:気象庁アメダスの気温(1時間ごと)を、昨夜と前の晩の2晩ぶん端末に保存して比べる
+  //  - 送り先は気象庁だけ。最寄りの観測地点は端末の中で選ぶ(位置は送らない)。送るのは地点の番号と日付だけ
+  //  - 保存は端末の localStorage(REVIEW_KEY)だけ。バックアップのJSONには入れない。全削除で消える
+  //  - 取れた値は保存して使い回す。値がそろった晩は二度と取りに行かない
+  const REVIEW_KEY = 'sleep-type-tool-bedding-review';
+  const REVIEW_SAME_C = 0.5;                 // 睡眠中の平均気温の差がこれ未満なら「ほぼ同じ」
+  const RV = { from: 19, n: 16, keep: 3 };   // 晩ごとに 19時〜翌10時の1時間ごと16点。保存は新しい3晩まで
+  const HOUR = 3600000;
+  const RV_RETRY_MS = 30 * 60000;            // 観測がまだそろわない晩を取り直す間隔
+  const RV_FINAL_MS = 60 * 60000;            // 晩の終わり(10時)からこれだけたてば、欠けは確定として取り直さない
+  const KEY_RE = /^(zip:\d{7}|place:-?\d{1,3}\.\d{2},-?\d{1,3}\.\d{2})$/;
+  const dateOf = k => new Date(+k.slice(0, 4), +k.slice(4, 6) - 1, +k.slice(6, 8));
+  const validDay = k => typeof k === 'string' && /^\d{8}$/.test(k) && ymdKey(dateOf(k)) === k;
+  const nightStart = k => { const d = dateOf(k); d.setHours(RV.from, 0, 0, 0); return d.getTime(); };
+  const nightEnd = k => nightStart(k) + (RV.n - 1) * HOUR;
+  const prefsKey = () => { const p = load(); return p.zip ? `zip:${p.zip}` : p.place ? placeKey(p.place) : ''; };
+
+  function loadReview() {
+    try {
+      const o = JSON.parse(localStorage.getItem(REVIEW_KEY) || 'null');
+      if (!o || typeof o !== 'object' || o.v !== 1 || typeof o.key !== 'string' || !KEY_RE.test(o.key)) return null;
+      if (!Array.isArray(o.cands) || o.cands.length < 1 || o.cands.length > AMEDAS_MAX_TRY || !Number.isInteger(o.si) || o.si < 0 || o.si >= o.cands.length) return null;
+      const cands = o.cands.map(c => c && /^\d{5}$/.test(c.id) && safeText(c.name, 20) ? { id: c.id, name: c.name } : null);
+      if (!cands.every(Boolean)) return null;
+      if (!o.nights || typeof o.nights !== 'object') return null;
+      const nights = {};
+      const ents = Object.entries(o.nights);
+      if (ents.length > RV.keep + 1) return null;
+      for (const [k, e] of ents) {
+        if (!validDay(k) || !e || !Array.isArray(e.pts) || e.pts.length !== RV.n || !e.pts.every(v => v === null || inRange(v, -60, 60))
+          || !inRange(e.at, 0, 4e12) || typeof e.ok !== 'boolean') return null;
+        nights[k] = { pts: e.pts.slice(), at: e.at, ok: e.ok };
+      }
+      return { v: 1, key: o.key, cands, si: o.si, nights };
+    } catch (e) { return null; }
+  }
+  function saveReview(r) { try { localStorage.setItem(REVIEW_KEY, JSON.stringify(r)); } catch (e) { /* 保存できなくても動く */ } }
+
+  // その晩の「寝ていた時間帯」。睡眠の記録(その夜の日付の記録)があれば寝た・起きた時刻、なければ今夜の寝具で設定した時刻。19時〜翌10時の中に収める
+  function windowOf(k) {
+    const base = dateOf(k), s0 = nightStart(k), e0 = nightEnd(k);
+    const at = (h, m, plus) => { const d = new Date(base); d.setDate(d.getDate() + plus); d.setHours(h, m, 0, 0); return d.getTime(); };
+    let bed = null, wake = null, src = 'setting';
+    try {
+      if (typeof Store !== 'undefined') {
+        const iso = `${k.slice(0, 4)}-${k.slice(4, 6)}-${k.slice(6, 8)}`;
+        for (const r of Store.records()) {
+          if (r.date !== iso || !isHm(r.bedTime) || !isHm(r.wakeTime)) continue;
+          const [bh, bm] = r.bedTime.split(':').map(Number), [wh, wm] = r.wakeTime.split(':').map(Number);
+          const b = at(bh, bm, bh < 12 ? 1 : 0);
+          let w = at(wh, wm, 0); while (w <= b) w += 24 * HOUR;
+          bed = bed === null ? b : Math.min(bed, b); wake = wake === null ? w : Math.max(wake, w);
+        }
+      }
+    } catch (e) { bed = null; }
+    if (bed !== null) {
+      bed = Math.max(bed, s0); wake = Math.min(wake, e0);
+      if (wake - bed >= HOUR / 2) src = 'record'; else bed = null;
+    }
+    if (bed === null) {
+      const p = load();
+      bed = Math.max(at(p.bed, 0, p.bed < 12 ? 1 : 0), s0); wake = Math.min(at(p.wake, 0, 1), e0);
+    }
+    return { bed, wake, src };
+  }
+
+  // 「昨夜」=起きる時刻を過ぎた、いちばん新しい晩。[昨夜, 前の晩, その前の晩] の日付(YYYYMMDD)
+  function latestNights(now) {
+    const base = new Date(now); base.setHours(0, 0, 0, 0);
+    for (let i = 0; i <= 3; i++) {
+      const k = ymdKey(addDays(base, -i));
+      if (windowOf(k).wake <= now.getTime()) return [0, 1, 2].map(j => ymdKey(addDays(dateOf(k), -j)));
+    }
+    return [];
+  }
+
+  // 1晩ぶんの気温(19時〜翌10時、1時間ごと)を気象庁から読む。欠測・品質が正常でない値は null
+  async function loadTempNight(id, k, signal) {
+    const s0 = nightStart(k);
+    const hoursOf = i => new Date(s0 + i * HOUR);
+    const files = new Set();
+    for (let i = 0; i < RV.n; i++) { const t = hoursOf(i); files.add(`${ymdKey(t)}_${pad2(Math.floor(t.getHours() / 3) * 3)}`); }
+    const data = {};
+    let ok = true, got = false;
+    await Promise.all([...files].map(async f => {
+      try {
+        const j = await getJSON(`${JMA_BASE}data/point/${id}/${f}.json`, signal);
+        if (j && typeof j === 'object') { Object.assign(data, j); got = true; }
+      } catch (e) {
+        if (signal && signal.aborted) throw e;
+        if (!(e instanceof NetError) || !/\((403|404)\)/.test(e.message)) ok = false;   // まだ無い・無いファイルは欠測。それ以外の失敗は取り直す
+      }
+    }));
+    const pts = [];
+    for (let i = 0; i < RV.n; i++) {
+      const t = hoursOf(i), o = data[`${ymdKey(t)}${pad2(t.getHours())}0000`];
+      const a = o && typeof o === 'object' ? o.temp : null;
+      pts.push(Array.isArray(a) && a[1] === 0 && inRange(a[0], -60, 60) ? a[0] : null);
+    }
+    return { pts, at: Date.now(), ok, got };
+  }
+
+  // 最寄りの観測地点(気温あり、40km以内、近い順に最大3つ)を端末の中で選んで保存する。場所が変わったときだけ
+  let rvNoStation = '';
+  async function reviewSeed(key, lat, lon, signal) {
+    const cur = loadReview();
+    if ((cur && cur.key === key) || rvNoStation === key) return;
+    const table = await getJSON(`${JMA_BASE}const/amedastable.json`, signal);
+    const cands = parseStations(table).filter(s => s.el[ELEM.temp] === '1')
+      .map(s => ({ s, d: distKm({ lat, lon }, s) })).filter(c => c.d <= AMEDAS_MAX_KM)
+      .sort((a, b) => a.d - b.d).slice(0, AMEDAS_MAX_TRY).map(c => ({ id: c.s.id, name: c.s.name }));
+    if (!cands.length) { rvNoStation = key; return; }
+    saveReview({ v: 1, key, cands, si: 0, nights: {} });
+  }
+
+  // 保存した値を足りないぶんだけ取り足す。何か保存したら true
+  let rvBusy = null;
+  function reviewRefresh(signal) {
+    if (!rvBusy) rvBusy = reviewRefreshRun(signal).finally(() => { rvBusy = null; });
+    return rvBusy;
+  }
+  async function reviewRefreshRun(signal) {
+    const key = prefsKey(), r = loadReview();
+    if (!key || !r || r.key !== key) return false;
+    const now = new Date(), nowMs = now.getTime();
+    const ks = latestNights(now);
+    if (ks.length < 3) return false;
+    const needFetch = k => {
+      const e = r.nights[k];
+      if (!e) return true;
+      if (e.ok && e.at >= nightEnd(k) + RV_FINAL_MS) return false;               // 欠けも含めて確定
+      return (e.pts.includes(null) || !e.ok) && nowMs - e.at >= RV_RETRY_MS;     // まだ観測が増えるかもしれない晩は、間をあけて取り直す
+    };
+    let changed = false;
+    const fetchList = async list => {
+      for (const k of list) {
+        if (!needFetch(k)) continue;
+        const e = await loadTempNight(r.cands[r.si].id, k, signal);
+        // その地点にこの晩の観測がまったく無ければ、次に近い地点へ替えて最初からやり直す
+        if (e.ok && !e.pts.some(v => v !== null) && r.si + 1 < r.cands.length) { r.si++; r.nights = {}; changed = true; return true; }
+        if (e.got) { r.nights[k] = { pts: e.pts, at: e.at, ok: e.ok }; changed = true; }
+      }
+      return false;
+    };
+    for (let round = 0; round < AMEDAS_MAX_TRY; round++) {
+      if (await fetchList([ks[0], ks[1]])) continue;
+      if (!(nightModel(r, ks[0]) && nightModel(r, ks[1])) && await fetchList([ks[2]])) continue;
+      break;
+    }
+    if (changed) {
+      for (const k of Object.keys(r.nights).sort().reverse().slice(RV.keep)) delete r.nights[k];
+      saveReview(r);
+    }
+    return changed;
+  }
+
+  // 時刻 t(ミリ秒)の気温。1時間ごとの点を直線でつなぐ。点が欠けていれば null
+  const interp = (pts, s0, t) => {
+    const x = (t - s0) / HOUR;
+    if (x < -1e-9 || x > RV.n - 1 + 1e-9) return null;
+    const i = Math.min(RV.n - 1, Math.floor(x + 1e-9)), f = x - i;
+    const a = pts[i];
+    if (a === null) return null;
+    if (f < 1e-6) return a;
+    const b = pts[i + 1];
+    return b === null ? null : a + (b - a) * f;
+  };
+  // その晩の寝ていた時間帯の平均・最低など。時間帯の気温がそろっていなければ null
+  function nightModel(r, k) {
+    const e = r.nights[k];
+    if (!e) return null;
+    const s0 = nightStart(k), w = windowOf(k);
+    const i0 = Math.floor((w.bed - s0) / HOUR), i1 = Math.min(RV.n - 1, Math.ceil((w.wake - s0) / HOUR));
+    for (let i = i0; i <= i1; i++) if (e.pts[i] === null) return null;
+    let sum = 0, cnt = 0, min = Infinity, minAt = w.bed;
+    for (let t = w.bed; ; t += 600000) {
+      const tt = Math.min(t, w.wake), v = interp(e.pts, s0, tt);
+      if (v === null) return null;
+      sum += v; cnt++;
+      if (v < min) { min = v; minAt = tt; }
+      if (tt >= w.wake) break;
+    }
+    return { k, s0, pts: e.pts, win: w, avg: sum / cnt, min, minAt,
+      atBed: interp(e.pts, s0, w.bed), atWake: interp(e.pts, s0, w.wake), at2: interp(e.pts, s0, s0 + 7 * HOUR), at5: interp(e.pts, s0, s0 + 10 * HOUR) };
+  }
+  // 画面に出す形。条件がそろわなければ null(エラーは出さない)
+  function reviewModel(now) {
+    const key = prefsKey(), r = loadReview();
+    if (!key || !r || r.key !== key) return null;
+    const ks = latestNights(now);
+    for (let i = 0; i + 1 < ks.length; i++) {
+      const a = nightModel(r, ks[i]), b = nightModel(r, ks[i + 1]);
+      if (a && b) {
+        const dd = a.avg - b.avg, rd = Math.round(Math.abs(dd) * 10) / 10;
+        return { a, b, dd, absd: rd, same: rd < REVIEW_SAME_C, station: r.cands[r.si].name };
+      }
+    }
+    return null;
+  }
+
+  const nightLabel = k => {
+    const s = dateOf(k), e = addDays(s, 1);
+    return `${s.getMonth() + 1}/${s.getDate()}→${e.getMonth() === s.getMonth() ? '' : (e.getMonth() + 1) + '/'}${e.getDate()}`;
+  };
+  const hmText = ms => { const d = new Date(ms); return `${d.getHours()}:${pad2(d.getMinutes())}`; };
+  const feelWord = m => m.same ? 'same' : m.dd < 0 ? 'cold' : 'warm';
+
+  // ホームの一言カード(押すと今夜の寝具のふりかえりへ)。文字はすべてここで作る固定の言い回しと数字だけ
+  function reviewCardEl(m) {
+    const w = feelWord(m);
+    const emo = w === 'cold' ? '🥶' : w === 'warm' ? '😊' : '😌';
+    const big = w === 'same' ? `前の晩とほぼ同じ(差 ${fmt(m.absd)}℃)`
+      : `前の晩より <b class="rv-${w}">${fmt(m.absd)}℃</b> ${w === 'cold' ? '寒かった' : '暖かかった'}`;
+    const el = document.createElement('a');
+    el.className = 'card rv-card'; el.href = '#bedding?review=1';
+    el.innerHTML = `<span class="rv-emo" aria-hidden="true">${emo}</span>
+      <span class="rv-text"><span class="rv-top">昨夜のふりかえり(${nightLabel(m.a.k)}の夜) <span class="rv-tag">実測</span></span>
+        <span class="rv-big">${big}</span>
+        <span class="rv-sub">最低 ${fmt(m.a.min)}℃(前の晩 ${fmt(m.b.min)}℃)</span></span>
+      <span class="rv-go" aria-hidden="true">›</span>`;
+    return el;
+  }
+  // ホームから呼ぶ。保存済みの値で先に描き、足りなければ気象庁から取り足して描き直す。条件がそろわなければ何も出さない
+  window.beddingReviewCard = function (box) {
+    if (!box) return;
+    const draw = () => { box.replaceChildren(); const m = reviewModel(new Date()); if (m) box.append(reviewCardEl(m)); };
+    draw();
+    reviewRefresh().then(ch => { if (ch && box.isConnected) draw(); }).catch(() => { /* 取れなくても何も出さない */ });
+  };
+
+  // グラフ(19時〜翌10時、3時間おきの目盛り)。昨夜=青の実線、前の晩=オレンジの点線。下に寝ていた時間の帯
+  function reviewChart(m, W) {
+    const { a, b } = m;
+    const H = 150, pl = 40, pr = 12, pt = 12, pb = 20, BH = 9;
+    const vals = [...a.pts, ...b.pts].filter(v => v !== null);
+    let lo = Math.floor(Math.min(...vals)) - 1, hi = Math.ceil(Math.max(...vals)) + 1;
+    const step = hi - lo > 10 ? 4 : 2;
+    lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+    const x = i => pl + (W - pl - pr) * i / (RV.n - 1);
+    const y = v => pt + (H - pt - pb) * (hi - v) / (hi - lo);
+    const xo = (n, t) => x((t - n.s0) / HOUR);
+    const path = pts => { let d = '', pen = false; pts.forEach((v, i) => { if (v === null) { pen = false; return; } d += `${pen ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`; pen = true; }); return d; };
+    let g = '';
+    for (let v = lo; v <= hi; v += step) {
+      g += `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/>`
+         + `<text x="${pl - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${v}℃</text>`;
+    }
+    for (let i = 0; i < RV.n; i += 3) {
+      g += `<line x1="${x(i)}" x2="${x(i)}" y1="${pt}" y2="${H - pb}" stroke="var(--line)" stroke-width="1" stroke-dasharray="2 4"/>`
+         + `<text x="${x(i)}" y="${H - 5}" text-anchor="middle" font-size="11" fill="var(--muted)">${(RV.from + i) % 24}時</text>`;
+    }
+    const mx = xo(a, a.minAt), my = y(a.min);
+    const lx = Math.max(pl + 28, Math.min(W - pr - 28, mx)), ly = my + 17 > H - pb ? my - 9 : my + 17;
+    const by1 = H + 2, by2 = by1 + BH + 5, svgH = by2 + BH + 4;
+    const band = (n, by, col, name) => `<text x="${pl - 6}" y="${by + BH - 1}" text-anchor="end" font-size="10" fill="var(--muted)">${name}</text>`
+      + `<rect x="${xo(n, n.win.bed).toFixed(1)}" y="${by}" width="${Math.max(2, xo(n, n.win.wake) - xo(n, n.win.bed)).toFixed(1)}" height="${BH}" rx="3" fill="${col}"/>`;
+    return `<svg class="rv-plot" viewBox="0 0 ${W} ${svgH}" role="img" aria-label="昨夜と前の晩の気温の推移と、寝ていた時間">
+      ${g}
+      <path d="${path(b.pts)}" fill="none" stroke="var(--rv-prev)" stroke-width="2.2" stroke-dasharray="1.5 4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${path(a.pts)}" fill="none" stroke="var(--rv-last)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="4.5" fill="var(--rv-last)" stroke="var(--surface)" stroke-width="2"/>
+      <text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="var(--rv-last)">最低 ${fmt(a.min)}℃</text>
+      ${band(a, by1, 'var(--rv-last)', '昨夜')}${band(b, by2, 'var(--rv-prev)', '前の晩')}
+    </svg>`;
+  }
+  const rvT = v => v === null ? '—' : `${fmt(v)}℃`;
+  // 今夜の寝具の「昨夜のふりかえり」の中身(文字は固定の言い回しと数字。観測地点名だけは呼び出し側が textContent で入れる)
+  function reviewHtml(m) {
+    const { a, b } = m, w = feelWord(m);
+    const head = w === 'same' ? `昨夜は前の晩と平均ほぼ同じ(差 ${fmt(m.absd)}℃)`
+      : `昨夜は前の晩より <b class="rv-${w}">平均 ${fmt(m.absd)}℃ ${w === 'cold' ? '寒かった' : '暖かかった'}</b>`;
+    const src = n => n.win.src === 'record' ? '睡眠の記録' : '今夜の寝具で設定した時刻';
+    const cell = (v, ms) => `<td>${rvT(v)}<br><small>${hmText(ms)}</small></td>`;
+    const dif = (x, y) => {
+      if (x === null || y === null) return '<td class="flat">—</td>';
+      const d = Math.round((x - y) * 10) / 10, c = d <= -REVIEW_SAME_C ? 'cold' : d >= REVIEW_SAME_C ? 'warm' : 'flat';
+      return `<td class="rv-${c}">${d > 0 ? '+' : ''}${fmt(d)}℃</td>`;
+    };
+    return `<p class="rv-head">${head}</p>
+      <p class="bd-note">寝ていた時間帯の平均気温どうしで比べています。</p>
+      <div class="bd-legend">
+        <span><svg width="22" height="6" aria-hidden="true"><line x1="1" x2="21" y1="3" y2="3" stroke="var(--rv-last)" stroke-width="2.4" stroke-linecap="round"/></svg>昨夜 ${nightLabel(a.k)}</span>
+        <span><svg width="22" height="6" aria-hidden="true"><line x1="1.5" x2="20.5" y1="3" y2="3" stroke="var(--rv-prev)" stroke-width="2.2" stroke-dasharray="1.5 4.5" stroke-linecap="round"/></svg>前の晩 ${nightLabel(b.k)}</span>
+      </div>
+      <div class="rv-chart"></div>
+      <div class="rv-bandtxt"><span><i class="sw last"></i>昨夜 ${hmText(a.win.bed)}〜${hmText(a.win.wake)}<small>(${src(a)})</small></span>
+        <span><i class="sw prev"></i>前の晩 ${hmText(b.win.bed)}〜${hmText(b.win.wake)}<small>(${src(b)})</small></span></div>
+      <table class="bd-cmp rv-tbl"><thead><tr><th></th><th>寝たとき</th><th>深夜2時</th><th>明け方5時</th><th>起きたとき</th></tr></thead><tbody>
+        <tr><td><i class="sw last"></i>昨夜</td>${cell(a.atBed, a.win.bed)}<td>${rvT(a.at2)}</td><td>${rvT(a.at5)}</td>${cell(a.atWake, a.win.wake)}</tr>
+        <tr><td><i class="sw prev"></i>前の晩</td>${cell(b.atBed, b.win.bed)}<td>${rvT(b.at2)}</td><td>${rvT(b.at5)}</td>${cell(b.atWake, b.win.wake)}</tr>
+        <tr><td>差</td>${dif(a.atBed, b.atBed)}${dif(a.at2, b.at2)}${dif(a.at5, b.at5)}${dif(a.atWake, b.atWake)}</tr>
+      </tbody></table>
+      <p class="bd-note">出典:気象庁アメダス <span class="rv-station"></span>(気温の実測。1時間ごと。加工して作成)</p>`;
+  }
+
+  window.viewBedding = function viewBedding(root, _id, query) {
     const saved = load();
     const hopt = (from, to, wrap) => { let s = ''; for (let h = from; h <= to; h++) s += `<option value="${wrap ? h % 24 : h}">${wrap ? h % 24 : h}:00</option>`; return s; };
     root.innerHTML = `<div class="bd">
@@ -374,6 +669,7 @@
           <div class="bd-plan"></div>
           <ul class="bd-tips"></ul>
         </div>
+        <section class="card bd-review" id="bdReview"><h2>🔍 昨夜のふりかえり</h2><div class="rv-wrap"></div></section>
         <section class="card"><h2>夜のあいだの天気</h2>
           <div class="bd-hours"></div>
           <div class="bd-note">青枠が最低気温の時間。☔ は雨の確率。</div>
@@ -400,6 +696,37 @@
     if (wakeEl.value === '') wakeEl.value = '6';
 
     let ctl = null, lastChart = null, rt = null, left = false;
+    const rvCtl = new AbortController();   // 画面を離れたら、ふりかえりの通信もやめる
+    let rvPending = false, rvScrolled = false;
+    const wantReview = !!(query && query.review === '1');   // ホームのカードから来た
+
+    // 昨夜のふりかえり(保存してある気象庁の実測から描く。足りなければ短い案内)
+    function drawReview() {
+      const wrap = q('.rv-wrap');
+      if (!wrap) return;
+      const m = reviewModel(new Date());
+      if (!m) {
+        wrap.innerHTML = '';
+        const p = document.createElement('p'); p.className = 'bd-note';
+        p.textContent = rvPending ? '気象庁の実測を取っています…'
+          : '昨夜と前の晩の実測がそろっていないため、比べを出せません(観測地点が近くにない・観測の欠け・取得前など)。そろえばここに出ます。';
+        wrap.append(p);
+        return;
+      }
+      wrap.innerHTML = reviewHtml(m);
+      wrap.querySelector('.rv-station').textContent = m.station;
+      const box = wrap.querySelector('.rv-chart');
+      box.innerHTML = reviewChart(m, Math.max(280, box.clientWidth || 340));
+    }
+    async function reviewFlow(d) {
+      rvPending = true; drawReview();
+      try {
+        if (d.lat !== undefined) await reviewSeed(d.key, d.lat, d.lon, rvCtl.signal);
+        if (!left) { drawReview(); await reviewRefresh(rvCtl.signal); }
+      } catch (e) { /* 取れなければ案内のまま */ }
+      rvPending = false;
+      if (!left) drawReview();
+    }
 
     function drawChart(nT, nL, real) {
       const chart = q('.bd-chart');
@@ -464,7 +791,7 @@
       s.addEventListener('pointercancel', hide);
     }
 
-    const onResize = () => { clearTimeout(rt); rt = setTimeout(() => lastChart && drawChart(...lastChart), 150); };
+    const onResize = () => { clearTimeout(rt); rt = setTimeout(() => { if (lastChart) { drawChart(...lastChart); drawReview(); } }, 150); };
     window.addEventListener('resize', onResize);
 
     function showError(text) {
@@ -502,7 +829,7 @@
       } catch (err) { if (signal.aborted) throw err; why = '取得できなかった'; }
       // パジャマ:最近3晩(今夜を含む)の夜の平均気温。0〜3晩前
       const avgs = [0, 1, 2, 3].map(k => { const n = nightSlice(H, addDays(t0, -k), bed, wake); return n.length ? avg(n.map(h => h.temp)) : null; });
-      return { v: RESULT_VER, key: target.key, zip: target.zip || '', bed, wake, at: now.getTime(), day: ymdKey(now), t0: t0.getTime(), addr: loc.addr, tonight: nTonight, last: nLast, real, why, avgs };
+      return { v: RESULT_VER, key: target.key, zip: target.zip || '', lat: round2(loc.lat), lon: round2(loc.lon), bed, wake, at: now.getTime(), day: ymdKey(now), t0: t0.getTime(), addr: loc.addr, tonight: nTonight, last: nLast, real, why, avgs };
     }
 
     const hm = d => `${d.getHours()}:${pad2(d.getMinutes())}`;
@@ -575,6 +902,8 @@
       q('.bd-result').hidden = false;
       lastChart = [nTonight, nLast, !!real];
       drawChart(nTonight, nLast, !!real);
+      reviewFlow(d);
+      if (wantReview && !rvScrolled) { rvScrolled = true; setTimeout(() => { const el = q('#bdReview'); if (el && !left) el.scrollIntoView({ block: 'start' }); }, 60); }
     }
 
     const refreshEl = q('.bd-refresh');
@@ -656,6 +985,6 @@
     refreshEl.addEventListener('click', () => run('refresh'));
     if (saved.zip || saved.place) run('open');   // 保存済みの郵便番号があれば、この画面を開いたときに(同じ日の保存結果がなければ)取得する
 
-    return () => { left = true; window.removeEventListener('resize', onResize); clearTimeout(rt); if (ctl) ctl.abort(); };
+    return () => { left = true; window.removeEventListener('resize', onResize); clearTimeout(rt); if (ctl) ctl.abort(); rvCtl.abort(); };
   };
 })();

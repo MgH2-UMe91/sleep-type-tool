@@ -79,3 +79,34 @@
 .bd .bd-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .8rem; color: var(--muted); }
 .bd .bd-status.stale .bd-stext { color: var(--warn); }
 .bd .bd-status .btn { flex: none; }
+
+/* ---- 昨夜のふりかえり(ホームの一言カード .rv-card と、今夜の寝具の .bd-review) ---- */
+:root { --rv-last: #2f63c8; --rv-prev: #d9791a; --rv-cold: #2f63c8; --rv-warm: #c4561f; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --rv-last: #79a4ff; --rv-prev: #ffa24d; --rv-cold: #79a4ff; --rv-warm: #ffa24d; }
+}
+:root[data-theme="dark"] { --rv-last: #79a4ff; --rv-prev: #ffa24d; --rv-cold: #79a4ff; --rv-warm: #ffa24d; }
+.card.rv-card { flex-direction: row; align-items: center; gap: 12px; text-decoration: none; color: inherit; }
+.rv-card .rv-emo { font-size: 1.9rem; line-height: 1; flex: none; }
+.rv-card .rv-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.rv-card .rv-top { font-size: .78rem; color: var(--muted); }
+.rv-card .rv-tag { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--line); font-size: .7rem; }
+.rv-card .rv-big { font-size: 1.1rem; font-weight: 700; line-height: 1.35; }
+.rv-card .rv-sub { font-size: .82rem; color: var(--muted); }
+.rv-card .rv-go { flex: none; font-size: 1.6rem; color: var(--muted); }
+.rv-cold { color: var(--rv-cold); }
+.rv-warm { color: var(--rv-warm); }
+.rv-head { font-size: 1.05rem; line-height: 1.5; margin: 0; }
+.rv-head b { font-weight: 800; }
+.bd .bd-review { scroll-margin-top: calc(var(--topbar-h, 46px) + 8px); }
+.bd .rv-wrap { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.bd .rv-chart svg.rv-plot { display: block; width: 100%; height: auto; }
+.bd .rv-bandtxt { display: flex; flex-direction: column; gap: 2px; font-size: .82rem; }
+.bd .rv-bandtxt small { color: var(--muted); margin-left: 4px; }
+.bd i.sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: baseline; }
+.bd i.sw.last { background: var(--rv-last); }
+.bd i.sw.prev { background: var(--rv-prev); }
+.bd .rv-tbl th, .bd .rv-tbl td { text-align: center; font-size: .82rem; padding: 6px 2px; }
+.bd .rv-tbl th:first-child, .bd .rv-tbl td:first-child { text-align: left; white-space: nowrap; }
+.bd .rv-tbl small { color: var(--muted); }
+.bd .rv-tbl td.flat { color: var(--muted); }
