@@ -338,14 +338,15 @@
         tonight: d.tonight.map(dumpHour), last: d.last.map(dumpHour), real: d.real, why: d.why, avgs: d.avgs }));
     } catch (e) { /* 保存できなくても動く */ }
   }
-  // 「この時刻(昼12時)より前に見たら『今夜』は昨日の夜から始まった夜」。その基準の日(0時)。画面の説明文もこの定数から作る
-  const TONIGHT_SWITCH_HOUR = 12;
-  const tonightBase = now => { const b = new Date(now.getHours() < TONIGHT_SWITCH_HOUR ? addDays(now, -1) : now); b.setHours(0, 0, 0, 0); return b; };
+  // 設定の「起きる時刻」より前に見たら『今夜』は昨日の夜から始まった夜(まだ寝ている夜)、起きる時刻を過ぎたら次に来る夜。その基準の日(0時)
+  // 切り替えの判定・保存結果の使い回し・画面の説明文は、すべてこの関数と起きる時刻から作る
+  const beforeWake = (now, wake) => now.getHours() < wake;
+  const tonightBase = (now, wake) => { const b = new Date(beforeWake(now, wake) ? addDays(now, -1) : now); b.setHours(0, 0, 0, 0); return b; };
   const WD = '日月火水木金土';
   const mdw = d => `${d.getMonth() + 1}/${d.getDate()}(${WD[d.getDay()]})`;
   // 同じ日で、同じ郵便番号・時刻で、「今夜」の基準日も同じなら、保存した結果をそのまま使える
   const isFresh = (d, key, bed, wake, now) => d.key === key && d.bed === bed && d.wake === wake
-    && d.day === ymdKey(now) && d.at <= now.getTime() + 60000 && d.t0 === tonightBase(now).getTime();
+    && d.day === ymdKey(now) && d.at <= now.getTime() + 60000 && d.t0 === tonightBase(now, wake).getTime();
   // 全データ削除から呼ぶ。寝具の郵便番号・時刻・保存した結果を消す
   window.beddingClear = () => { try { localStorage.removeItem(BEDDING_KEY); localStorage.removeItem(RESULT_KEY); localStorage.removeItem(REVIEW_KEY); localStorage.removeItem('sleep-type-tool-bedding-rvopen'); } catch (e) { /* 何もしない */ } };
 
@@ -845,7 +846,7 @@
       })).filter(Boolean);
 
       const now = new Date();
-      const t0 = tonightBase(now);
+      const t0 = tonightBase(now, wake);
       const nTonight = nightSlice(H, t0, bed, wake);
       let nLast = nightSlice(H, addDays(t0, -1), bed, wake);
       if (nTonight.length < 2 || nLast.length < 2) throw new InputError('天気のデータが足りませんでした');
@@ -891,9 +892,9 @@
       const sd = new Date(t0d); sd.setHours(bed, 0, 0, 0); if (bed < 12) sd.setDate(sd.getDate() + 1);
       const ed = addDays(t0d, 1); ed.setHours(wake, 0, 0, 0);
       q('.bd-wl').textContent = `${mdw(sd)} ${bed}時 〜 ${mdw(ed)} ${wake}時 の夜`;
-      q('.bd-wn').textContent = nowD.getHours() < TONIGHT_SWITCH_HOUR
-        ? `今表示しているのは、明けたばかりの夜です。昼${TONIGHT_SWITCH_HOUR}時に、次の夜の予報に切り替わります。`
-        : `昼${TONIGHT_SWITCH_HOUR}時を過ぎたので、今夜(これから寝る夜)の予報です。翌日の昼${TONIGHT_SWITCH_HOUR}時に、次の夜に切り替わります。`;
+      q('.bd-wn').textContent = beforeWake(nowD, wake)
+        ? `今表示しているのは、明けたばかりの夜です。起きる時刻(${wake}時)を過ぎると、次の夜の予報に切り替わります。`
+        : `起きる時刻(${wake}時)を過ぎたので、今夜(これから寝る夜)の予報です。翌日の${wake}時を過ぎると、次の夜に切り替わります。`;
       q('.bd-head').textContent = v.head;
       q('.bd-head').hidden = !v.head;
       q('.bd-icon').textContent = v.icon;
