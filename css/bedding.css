@@ -110,3 +110,12 @@
 .bd .rv-tbl th:first-child, .bd .rv-tbl td:first-child { text-align: left; white-space: nowrap; }
 .bd .rv-tbl small { color: var(--muted); }
 .bd .rv-tbl td.flat { color: var(--muted); }
+
+.bd .rv-toggle { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; width: 100%; cursor: pointer; border-radius: 8px; }
+.bd .rv-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.bd .rv-tt { font-weight: 700; font-size: .95rem; }
+.bd .rv-tag { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--line); font-size: .7rem; font-weight: 400; color: var(--muted); }
+.bd .rv-sum { grid-column: 1; font-size: 1.05rem; font-weight: 700; }
+.bd .rv-chev { grid-column: 2; grid-row: 1 / span 2; font-size: 1.2rem; color: var(--muted); }
+.bd .rv-wrap { margin-top: 10px; }
+.bd .rv-wrap[hidden] { display: none; }

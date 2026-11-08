@@ -344,7 +344,7 @@
   const isFresh = (d, key, bed, wake, now) => d.key === key && d.bed === bed && d.wake === wake
     && d.day === ymdKey(now) && d.at <= now.getTime() + 60000 && d.t0 === tonightBase(now).getTime();
   // 全データ削除から呼ぶ。寝具の郵便番号・時刻・保存した結果を消す
-  window.beddingClear = () => { try { localStorage.removeItem(BEDDING_KEY); localStorage.removeItem(RESULT_KEY); localStorage.removeItem(REVIEW_KEY); } catch (e) { /* 何もしない */ } };
+  window.beddingClear = () => { try { localStorage.removeItem(BEDDING_KEY); localStorage.removeItem(RESULT_KEY); localStorage.removeItem(REVIEW_KEY); localStorage.removeItem('sleep-type-tool-bedding-rvopen'); } catch (e) { /* 何もしない */ } };
 
   // ---- 昨夜のふりかえり:気象庁アメダスの気温(1時間ごと)を、昨夜と前の晩の2晩ぶん端末に保存して比べる
   //  - 送り先は気象庁だけ。最寄りの観測地点は端末の中で選ぶ(位置は送らない)。送るのは地点の番号と日付だけ
@@ -661,6 +661,12 @@
       </section>
       <div class="bd-result" hidden>
         <div class="bd-status"><span class="bd-stext" role="status"></span><button type="button" class="btn ghost small bd-refresh" title="天気を取り直す">更新</button></div>
+        <section class="card bd-review" id="bdReview">
+          <button type="button" class="rv-toggle" aria-expanded="false" aria-controls="rvBody">
+            <span class="rv-tt">🔍 昨夜のふりかえり <span class="rv-tag">実測</span></span>
+            <span class="rv-sum"></span><span class="rv-chev" aria-hidden="true">▸</span></button>
+          <div class="rv-wrap" id="rvBody" hidden></div>
+        </section>
         <div class="bd-verdict">
           <div class="bd-head" hidden></div>
           <div class="bd-icon"></div>
@@ -669,7 +675,6 @@
           <div class="bd-plan"></div>
           <ul class="bd-tips"></ul>
         </div>
-        <section class="card bd-review" id="bdReview"><h2>🔍 昨夜のふりかえり</h2><div class="rv-wrap"></div></section>
         <section class="card"><h2>夜のあいだの天気</h2>
           <div class="bd-hours"></div>
           <div class="bd-note">青枠が最低気温の時間。☔ は雨の確率。</div>
@@ -701,10 +706,22 @@
     const wantReview = !!(query && query.review === '1');   // ホームのカードから来た
 
     // 昨夜のふりかえり(保存してある気象庁の実測から描く。足りなければ短い案内)
+    const RV_OPEN_KEY = 'sleep-type-tool-bedding-rvopen';
+    const rvStored = () => { try { return localStorage.getItem(RV_OPEN_KEY) === '1'; } catch (e) { return false; } };
+    let rvOpen = wantReview || rvStored();   // 初めは閉じる。ホームのカードから来たときは開く(その開きは覚えない)
+    function applyOpen() {
+      const t = q('.rv-toggle'), wrap = q('.rv-wrap');
+      t.setAttribute('aria-expanded', String(rvOpen)); q('.rv-chev').textContent = rvOpen ? '▾' : '▸';
+      wrap.hidden = !rvOpen;
+    }
     function drawReview() {
       const wrap = q('.rv-wrap');
       if (!wrap) return;
       const m = reviewModel(new Date());
+      const sum = q('.rv-sum');
+      sum.textContent = m ? (m.same ? `前の晩とほぼ同じ(差 ${fmt(m.absd)}℃)` : `前の晩より ${fmt(m.absd)}℃ ${m.dd < 0 ? '寒かった' : '暖かかった'}`) : (rvPending ? '取得中…' : 'まだ比べられません');
+      sum.className = 'rv-sum' + (m && !m.same ? (m.dd < 0 ? ' rv-cold' : ' rv-warm') : '');
+      if (!rvOpen) { wrap.textContent = ''; return; }
       if (!m) {
         wrap.innerHTML = '';
         const p = document.createElement('p'); p.className = 'bd-note';
@@ -718,6 +735,12 @@
       const box = wrap.querySelector('.rv-chart');
       box.innerHTML = reviewChart(m, Math.max(280, box.clientWidth || 340));
     }
+    q('.rv-toggle').addEventListener('click', () => {
+      rvOpen = !rvOpen;
+      try { localStorage.setItem(RV_OPEN_KEY, rvOpen ? '1' : '0'); } catch (e) { /* 覚えられなくても開閉できる */ }
+      applyOpen(); drawReview();
+    });
+    applyOpen();
     async function reviewFlow(d) {
       rvPending = true; drawReview();
       try {
