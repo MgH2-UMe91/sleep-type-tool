@@ -338,8 +338,11 @@
         tonight: d.tonight.map(dumpHour), last: d.last.map(dumpHour), real: d.real, why: d.why, avgs: d.avgs }));
     } catch (e) { /* 保存できなくても動く */ }
   }
-  // 「昼12時より前に見たら『今夜』は昨日の夜から始まった夜」。その基準の日(0時)
-  const tonightBase = now => { const b = new Date(now.getHours() < 12 ? addDays(now, -1) : now); b.setHours(0, 0, 0, 0); return b; };
+  // 「この時刻(昼12時)より前に見たら『今夜』は昨日の夜から始まった夜」。その基準の日(0時)。画面の説明文もこの定数から作る
+  const TONIGHT_SWITCH_HOUR = 12;
+  const tonightBase = now => { const b = new Date(now.getHours() < TONIGHT_SWITCH_HOUR ? addDays(now, -1) : now); b.setHours(0, 0, 0, 0); return b; };
+  const WD = '日月火水木金土';
+  const mdw = d => `${d.getMonth() + 1}/${d.getDate()}(${WD[d.getDay()]})`;
   // 同じ日で、同じ郵便番号・時刻で、「今夜」の基準日も同じなら、保存した結果をそのまま使える
   const isFresh = (d, key, bed, wake, now) => d.key === key && d.bed === bed && d.wake === wake
     && d.day === ymdKey(now) && d.at <= now.getTime() + 60000 && d.t0 === tonightBase(now).getTime();
@@ -546,6 +549,8 @@
     return null;
   }
 
+  // 凡例用:「11/7(金)→11/8(土)」。今夜の見出しと同じ日付+曜日の書式
+  const nightLabelWd = k => { const s = dateOf(k); return `${mdw(s)}→${mdw(addDays(s, 1))}`; };
   const nightLabel = k => {
     const s = dateOf(k), e = addDays(s, 1);
     return `${s.getMonth() + 1}/${s.getDate()}→${e.getMonth() === s.getMonth() ? '' : (e.getMonth() + 1) + '/'}${e.getDate()}`;
@@ -627,8 +632,8 @@
     return `<p class="rv-head">${head}</p>
       <p class="bd-note">寝ていた時間帯の平均気温どうしで比べています。</p>
       <div class="bd-legend">
-        <span><svg width="22" height="6" aria-hidden="true"><line x1="1" x2="21" y1="3" y2="3" stroke="var(--rv-last)" stroke-width="2.4" stroke-linecap="round"/></svg>昨夜 ${nightLabel(a.k)}</span>
-        <span><svg width="22" height="6" aria-hidden="true"><line x1="1.5" x2="20.5" y1="3" y2="3" stroke="var(--rv-prev)" stroke-width="2.2" stroke-dasharray="1.5 4.5" stroke-linecap="round"/></svg>前の晩 ${nightLabel(b.k)}</span>
+        <span><svg width="22" height="6" aria-hidden="true"><line x1="1" x2="21" y1="3" y2="3" stroke="var(--rv-last)" stroke-width="2.4" stroke-linecap="round"/></svg>昨夜 ${nightLabelWd(a.k)}</span>
+        <span><svg width="22" height="6" aria-hidden="true"><line x1="1.5" x2="20.5" y1="3" y2="3" stroke="var(--rv-prev)" stroke-width="2.2" stroke-dasharray="1.5 4.5" stroke-linecap="round"/></svg>前の晩 ${nightLabelWd(b.k)}</span>
       </div>
       <div class="rv-chart"></div>
       <div class="rv-bandtxt"><span><i class="sw last"></i>昨夜 ${hmText(a.win.bed)}〜${hmText(a.win.wake)}<small>(${src(a)})</small></span>
@@ -668,6 +673,7 @@
           <div class="rv-wrap" id="rvBody" hidden></div>
         </section>
         <div class="bd-verdict">
+          <div class="bd-when"><div class="bd-wl"></div><div class="bd-wn"></div></div>
           <div class="bd-head" hidden></div>
           <div class="bd-icon"></div>
           <div class="bd-main"></div>
@@ -880,6 +886,14 @@
         + (changed ? `<div class="bd-pmain">そろそろ${pName}パジャマに切り替え</div>` : `<div class="bd-pmain">${pName}パジャマ(${pDesc})</div>`)
         + `<div class="bd-note">最近3晩の夜の平均気温 ${fmt(cur3)}℃(外の気温)。目安:22℃以上は夏用、15〜22℃は春秋用、15℃未満は冬用。部屋が暖かい家なら1段薄手でもOK。</div>`;
       q('.bd-verdict').className = 'bd-verdict ' + v.kind;
+      // 対象の夜(日付+曜日+設定の時刻)と、切り替わりの説明
+      const nowD = new Date(), t0d = new Date(d.t0);
+      const sd = new Date(t0d); sd.setHours(bed, 0, 0, 0); if (bed < 12) sd.setDate(sd.getDate() + 1);
+      const ed = addDays(t0d, 1); ed.setHours(wake, 0, 0, 0);
+      q('.bd-wl').textContent = `${mdw(sd)} ${bed}時 〜 ${mdw(ed)} ${wake}時 の夜`;
+      q('.bd-wn').textContent = nowD.getHours() < TONIGHT_SWITCH_HOUR
+        ? `今表示しているのは、明けたばかりの夜です。昼${TONIGHT_SWITCH_HOUR}時に、次の夜の予報に切り替わります。`
+        : `昼${TONIGHT_SWITCH_HOUR}時を過ぎたので、今夜(これから寝る夜)の予報です。翌日の昼${TONIGHT_SWITCH_HOUR}時に、次の夜に切り替わります。`;
       q('.bd-head').textContent = v.head;
       q('.bd-head').hidden = !v.head;
       q('.bd-icon').textContent = v.icon;

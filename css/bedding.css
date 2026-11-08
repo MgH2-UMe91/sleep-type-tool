@@ -119,3 +119,6 @@
 .bd .rv-chev { grid-column: 2; grid-row: 1 / span 2; font-size: 1.2rem; color: var(--muted); }
 .bd .rv-wrap { margin-top: 10px; }
 .bd .rv-wrap[hidden] { display: none; }
+.bd .bd-when { margin-bottom: 12px; }
+.bd .bd-wl { font-size: .85rem; font-weight: 700; }
+.bd .bd-wn { font-size: .75rem; color: var(--muted); margin-top: 2px; }
