@@ -1425,7 +1425,8 @@ function viewAbout(root) {
     <h2>利用について</h2>
     <ul class="small" style="margin:0;padding-left:1.2em">
       <li>非営利の個人利用はご自由にどうぞ。</li>
-      <li>ソースコードや画面の無断転載・再配布、改変しての公開はご遠慮ください。</li>
+      <li>画面のスクショの共有もご自由にどうぞ。</li>
+      <li>ソースコードの無断転載・再配布、改変しての公開はご遠慮ください。</li>
       <li>ポケモンスリープおよび関連する権利は、それぞれの権利者に帰属します。</li>
       <li>同梱の Tesseract.js(Apache License 2.0)は、そのライセンスに従います。</li>
     </ul>
