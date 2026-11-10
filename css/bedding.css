@@ -122,3 +122,12 @@
 .bd .bd-when { margin-bottom: 12px; }
 .bd .bd-wl { font-size: .85rem; font-weight: 700; }
 .bd .bd-wn { font-size: .75rem; color: var(--muted); margin-top: 2px; }
+
+/* ---- 気温のしきい値(エアコン・暑さの判定) ---- */
+.bd .bd-thform { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.bd .bd-thform label.f { flex: 1 1 8.5em; }
+.bd .bd-thform input, .bd .bd-thform select { width: 100%; }
+.bd .bd-thmsg { font-size: .9rem; }
+.bd .bd-thmsg:empty { display: none; }
+.bd .bd-thmsg.err { color: var(--err); }
+.bd .bd-thmsg.ok { color: var(--ok); }

@@ -19,9 +19,31 @@
   const inRange = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
   const inJapan = (lat, lon) => inRange(lat, JP_RANGE.latMin, JP_RANGE.latMax) && inRange(lon, JP_RANGE.lonMin, JP_RANGE.lonMax);
 
+  // エアコン・暑さの判定に使う気温のしきい値(端末の localStorage だけ。バックアップには入れない)
+  const AC_BORDER_C = 0.5;                                  // しきい値の±これ以内なら「微妙」と言う(寒い側・暑い側どちらも)
+  const TH_DEFAULT = { cold: 10, hot: 25, lead: 2 };         // 寒くて起きる気温 / 暑くて起きる気温 / エアコンを何時間前に入れるか
+  const TH_RANGE = { cold: [-10, 30], hot: [10, 45], lead: [0, 6] };
+  // 値を確かめて作り直す(読んだ保存値にも、入力にも同じ限定をかける)。範囲外・順序の誤りは null
+  const cleanTh = t => {
+    if (!t || typeof t !== 'object') return null;
+    const { cold, hot, lead } = t;
+    if (!inRange(cold, ...TH_RANGE.cold) || !inRange(hot, ...TH_RANGE.hot) || !Number.isInteger(lead) || !inRange(lead, ...TH_RANGE.lead) || !(cold < hot)) return null;
+    return { cold: Math.round(cold * 10) / 10, hot: Math.round(hot * 10) / 10, lead };
+  };
+  // 入力欄の文字を確かめる。返り値: { th } か { error, bad: ['cold'|'hot'|'lead'] }
+  function checkTh(coldText, hotText, leadText) {
+    const num = t => { const x = toHalf(String(t)).trim(); return x !== '' && /^-?\d+(\.\d+)?$/.test(x) ? Number(x) : NaN; };
+    const cold = num(coldText), hot = num(hotText), lead = num(leadText);
+    if (!Number.isFinite(cold) || !inRange(cold, ...TH_RANGE.cold)) return { error: `寒い気温は ${TH_RANGE.cold[0]}〜${TH_RANGE.cold[1]}℃ の数字で入れてください`, bad: ['cold'] };
+    if (!Number.isFinite(hot) || !inRange(hot, ...TH_RANGE.hot)) return { error: `暑い気温は ${TH_RANGE.hot[0]}〜${TH_RANGE.hot[1]}℃ の数字で入れてください`, bad: ['hot'] };
+    if (!(cold < hot)) return { error: `寒い気温(${fmt(cold)}℃)は、暑い気温(${fmt(hot)}℃)より低くしてください`, bad: ['cold', 'hot'] };
+    if (!Number.isInteger(lead) || !inRange(lead, ...TH_RANGE.lead)) return { error: `エアコンを入れるタイミングは ${TH_RANGE.lead[0]}〜${TH_RANGE.lead[1]} 時間前の整数で入れてください`, bad: ['lead'] };
+    return { th: cleanTh({ cold, hot, lead }) };
+  }
+
   // 保存するのは、郵便番号、または地名検索で選んだ場所(名前と緯度経度)。どちらか一方
   const load = () => {
-    const none = { zip: '', place: null, query: '', bed: 23, wake: 6 };
+    const none = { zip: '', place: null, query: '', bed: 23, wake: 6, th: { ...TH_DEFAULT } };
     try {
       const o = JSON.parse(localStorage.getItem(BEDDING_KEY) || '{}') || {};
       const zip = typeof o.zip === 'string' && /^\d{7}$/.test(o.zip) ? o.zip : '';
@@ -33,7 +55,7 @@
       const query = place ? safeText(o.query, 40) || '' : '';
       const bed = Number.isInteger(o.bed) && o.bed >= 0 && o.bed <= 23 ? o.bed : 23;
       const wake = Number.isInteger(o.wake) && o.wake >= 0 && o.wake <= 23 ? o.wake : 6;
-      return { zip, place: query ? place : null, query, bed, wake };
+      return { zip, place: query ? place : null, query, bed, wake, th: cleanTh(o.th) || { ...TH_DEFAULT } };
     } catch (e) { return none; }
   };
   const save = v => { try { localStorage.setItem(BEDDING_KEY, JSON.stringify(v)); } catch (e) { /* 保存できなくても動く */ } };
@@ -215,7 +237,44 @@
   }
 
   // 寝るとき(寝てから2時間)と明け方(いちばん冷えるとき)を別々に昨夜と比べる
-  function decide(now, prev, bed, hours) {
+  // エアコンと暑さの判定(気温のしきい値で見る。体感温度ではなく、寝る〜起きる時刻の時間別の予報気温)
+  //  寒い側: 寝る時点でしきい値未満 → 最初からON / 途中で初めて下回る → その lead 時間前にONタイマー(寝る時刻より前になるなら寝るときにON) / 下回らない → 勧めない
+  //  最低気温がしきい値の ±AC_BORDER_C 以内なら断定せず「微妙。タイマー付きがおすすめ」。暑い側(最高気温)も同じ扱い
+  function acAdvice(hours, th) {
+    const hr = t => `${new Date(t).getHours()}時`;
+    const bedT = hours[0].t.getTime();
+    const temps = hours.map(h => h.temp);
+    const min = Math.min(...temps), max = Math.max(...temps);
+    const near = (v, th0) => Math.abs(v - th0) <= AC_BORDER_C + 1e-9;
+    const rows = [];
+
+    const iCold = temps.findIndex(v => v < th.cold);
+    let on = '', timing = '';
+    if (iCold >= 0) {
+      const crossT = hours[iCold].t.getTime();
+      const timerT = crossT - th.lead * 3600000;
+      if (iCold === 0) { on = '最初からエアコンON'; timing = `寝る${hr(bedT)}の予報が ${fmt(temps[0])}℃ で、${fmt(th.cold)}℃を下回っています`; }
+      else if (timerT <= bedT) { on = '寝るときにエアコンON'; timing = `${hr(crossT)}に ${fmt(th.cold)}℃を下回る予報。${th.lead}時間前は寝る時刻より前になるので、寝るときから`; }
+      else { on = `${hr(timerT)}にエアコンONタイマー`; timing = `${hr(crossT)}に ${fmt(th.cold)}℃を下回る予報の${th.lead ? `${th.lead}時間前` : 'ちょうどその時刻'}。寝てから${Math.round((timerT - bedT) / 3600000)}時間後に入`; }
+    }
+    if (near(min, th.cold)) {
+      rows.push(['❄️ エアコン', `微妙。タイマー付きがおすすめ<br><small>(最低 ${fmt(min)}℃(${hr(hours[temps.indexOf(min)].t)})で、しきい値 ${fmt(th.cold)}℃のすぐそば${on ? `。入れるなら:${on}。${timing}` : '。下回る予報ではありませんが、冷えたら入るように'})</small>`]);
+    } else if (iCold >= 0) {
+      rows.push(['❄️ エアコン', `${on}<br><small>(${timing})</small>`]);
+    } else {
+      rows.push(['❄️ エアコン', `勧めません<br><small>(最低 ${fmt(min)}℃(${hr(hours[temps.indexOf(min)].t)})は、しきい値 ${fmt(th.cold)}℃以上)</small>`]);
+    }
+
+    if (near(max, th.hot)) {
+      rows.push(['🔥 暑さ', `暑くなるかも(微妙)。寝具を薄めに/冷房を検討<br><small>(最高 ${fmt(max)}℃(${hr(hours[temps.indexOf(max)].t)})で、しきい値 ${fmt(th.hot)}℃のすぐそば)</small>`]);
+    } else if (max > th.hot) {
+      const iHot = temps.findIndex(v => v > th.hot);
+      rows.push(['🔥 暑さ', `暑くなる予報。寝具を薄めに/冷房を検討<br><small>(${hr(hours[iHot].t)}に ${fmt(th.hot)}℃を超え、最高 ${fmt(max)}℃)</small>`]);
+    }
+    return rows;
+  }
+
+  function decide(now, prev, bed, hours, th) {
     const T = 1.5;
     const e = now.earlyFeel - prev.earlyFeel;   // +なら寝るときが暖かい
     const l = now.lateFeel - prev.lateFeel;     // −なら明け方が寒い
@@ -223,20 +282,8 @@
     const E = sgn(e), L = sgn(l);
     const sd = d => `<small>(体感 昨夜より ${d > 0 ? '+' : ''}${fmt(d)}℃)</small>`;
 
-    // エアコン入りタイマー:冷え始める時刻の1時間前
-    //  冷え始める=体感が「寝たときの体感」から2℃下がる最初の時刻
-    //  (下がらない夜は、いちばん冷える時刻を使う。寝て1時間後より前にはしない)
     const coldH = now.minAt.getHours();
     const bedFeel = hours[0].feel;
-    let iCold = hours.findIndex((h, i) => i >= 1 && h.feel <= bedFeel - 2);
-    const found = iCold >= 0;
-    if (!found) iCold = hours.findIndex(h => h.t.getTime() === now.minAt.getTime());
-    const startH = hours[iCold].t.getHours();
-    const iTimer = Math.max(1, iCold - 1);
-    const timerH = hours[Math.min(iTimer, hours.length - 1)].t.getHours();
-    const after = Math.round((hours[Math.min(iTimer, hours.length - 1)].t - hours[0].t) / 3600000);
-    const startTxt = found ? `${startH}時ごろから寝たときより2℃以上冷える` : `${startH}時ごろがいちばん冷える`;
-    const timer = `エアコン入りタイマー ${timerH}時<br><small>(${startTxt}ので、その1時間前。${bed}時に寝るなら リモコンで「${after}時間後に入」)</small>`;
 
     let kind, icon, main;
     if (E === 1 && L === -1) { kind = 'split'; icon = '🛏️➖ → 🌅➕'; main = '寝るときは1枚減らして、明け方に備える'; }
@@ -248,25 +295,23 @@
     const bedTxt = E === 1 ? `1枚減らす${e >= 4 ? '＋α' : ''}` : E === -1 ? `1枚増やす${e <= -4 ? '＋α' : ''}` : '昨日と同じ';
     // 役割分担:
     //  毛布 … 昨夜との差に合わせる(寝るときに決める)
-    //  エアコン … 寝ているあいだの冷え込み(寝たときの体感 → いちばん低い体感)を埋める。3℃以上のときだけ
+    //  エアコン … 気温のしきい値で別に判定する(acAdvice)。ここでは毛布の話だけ
     const nightDrop = bedFeel - now.lateFeel;
-    const needAC = nightDrop >= 3;
     let lateTxt;
-    if (needAC) {
-      lateTxt = timer.replace('(', `(寝ているあいだに ${fmt(nightDrop)}℃ 下がる分を埋める。`);
-    } else if (L === -1 && E !== -1) {
-      lateTxt = `足元に1枚置いておく<br><small>(寝ているあいだの冷え込みは ${fmt(nightDrop)}℃ なので、エアコンはいらない)</small>`;
+    if (L === -1 && E !== -1) {
+      lateTxt = `足元に1枚置いておく<br><small>(寝ているあいだの冷え込みは 体感 ${fmt(nightDrop)}℃)</small>`;
     } else if (L === -1) {
-      lateTxt = `そのままでOK<br><small>(寝ているあいだの冷え込みは ${fmt(nightDrop)}℃ だけ。寝るときに増やした分で足りる)</small>`;
+      lateTxt = `そのままでOK<br><small>(寝ているあいだの冷え込みは 体感 ${fmt(nightDrop)}℃。寝るときに増やした分で足りる)</small>`;
     } else if (L === 1) {
       lateTxt = E === -1 ? '暖かめ。暑ければ1枚はずす' : '暖かめ。そのままでOK';
     } else {
-      lateTxt = `そのままでOK<br><small>(寝ているあいだの冷え込みは ${fmt(nightDrop)}℃ だけ)</small>`;
+      lateTxt = `そのままでOK<br><small>(寝ているあいだの冷え込みは 体感 ${fmt(nightDrop)}℃)</small>`;
     }
 
     const plan = [
       ['🛏️ 寝るとき', `${bedTxt} ${sd(e)}`],
-      [`🌅 明け方<br>${coldH}時ごろ`, `${lateTxt} ${sd(l)}`]
+      [`🌅 明け方<br>${coldH}時ごろ`, `${lateTxt} ${sd(l)}`],
+      ...acAdvice(hours, th)
     ];
     // 起きたとき:起きる時刻の天気。晴れならカーテンをしっかり閉める
     const w = hours[hours.length - 1];
@@ -285,7 +330,6 @@
     if (now.hum > 75 && now.avg > 20) tips.push(`湿度 ${Math.round(now.hum)}% で蒸し暑い夜。除湿がおすすめ。`);
     if (now.rain >= 50) tips.push(`夜のうちに雨の確率 ${now.rain}%。窓は閉めて寝ましょう。`);
     if (now.wind >= 30) tips.push(`風が強め(最大 ${Math.round(now.wind)}km/h)。音で起きやすいかも。`);
-    if (now.wake <= 8) tips.push(`起きる時刻は ${fmt(now.wake)}℃。暖房のタイマー予約がおすすめ。`);
     // 見出し:寝るとき・明け方のどちらかが昨夜より3℃以上違えば一言
     const coldest = Math.min(e, l), warmest = Math.max(e, l);
     const head = coldest <= -3 ? `❄️ 今夜は冷え込みます(体感 最大 ${fmt(coldest)}℃)`
@@ -665,6 +709,17 @@
         <div class="bd-msg" role="alert"></div>
         <div class="bd-cands" hidden></div>
       </section>
+      <section class="card bd-th">
+        <h2>気温のしきい値</h2>
+        <form class="bd-thform" novalidate>
+          <label class="f">寒くて起きる気温(℃)<input class="bd-th-cold" type="text" inputmode="decimal" autocomplete="off" maxlength="5"></label>
+          <label class="f">暑くて起きる気温(℃)<input class="bd-th-hot" type="text" inputmode="decimal" autocomplete="off" maxlength="5"></label>
+          <label class="f">エアコンを入れるのは<select class="bd-th-lead">${[0, 1, 2, 3, 4, 5, 6].map(n => `<option value="${n}">${n ? `下回る${n}時間前` : '下回る時刻に'}</option>`).join('')}</select></label>
+          <button class="btn bd-thgo" type="submit">保存</button>
+        </form>
+        <div class="bd-note">寝る〜起きる時刻の予報気温が、この気温を下回る(寒い側)・上回る(暑い側)かで、エアコンや暑さの目安を出します。この端末にだけ保存します。</div>
+        <div class="bd-thmsg" role="alert"></div>
+      </section>
       <div class="bd-result" hidden>
         <div class="bd-status"><span class="bd-stext" role="status"></span><button type="button" class="btn ghost small bd-refresh" title="天気を取り直す">更新</button></div>
         <section class="card bd-review" id="bdReview">
@@ -706,6 +761,26 @@
     wakeEl.value = String(saved.wake);
     if (bedEl.value === '') bedEl.value = '23';
     if (wakeEl.value === '') wakeEl.value = '6';
+
+    // 気温のしきい値(寒い・暑い・エアコンを何時間前に入れるか)。保存は同じ設定のキー。入力の誤りは保存しない
+    let th = saved.th, lastShown = null;   // lastShown: 最後に描いた結果(しきい値を変えたとき描き直す)
+    const thCold = q('.bd-th-cold'), thHot = q('.bd-th-hot'), thLead = q('.bd-th-lead'), thMsg = q('.bd-thmsg');
+    const fillTh = () => { thCold.value = String(th.cold); thHot.value = String(th.hot); thLead.value = String(th.lead); };
+    fillTh();
+    q('.bd-thform').addEventListener('submit', e => {
+      e.preventDefault();
+      [thCold, thHot, thLead].forEach(el => el.classList.remove('bad'));
+      const r = checkTh(thCold.value, thHot.value, thLead.value);
+      if (r.error) {
+        thMsg.className = 'bd-thmsg err'; thMsg.textContent = r.error + '(保存していません)';
+        r.bad.forEach(k => ({ cold: thCold, hot: thHot, lead: thLead })[k].classList.add('bad'));
+        return;
+      }
+      th = r.th; fillTh();
+      const p = load(); p.th = th; save(p);
+      thMsg.className = 'bd-thmsg ok'; thMsg.textContent = '保存しました';
+      if (lastShown) render(lastShown[0], lastShown[1], true);   // 通信せず、保存済みの予報で判定だけやり直す
+    });
 
     let ctl = null, lastChart = null, rt = null, left = false;
     const rvCtl = new AbortController();   // 画面を離れたら、ふりかえりの通信もやめる
@@ -865,7 +940,8 @@
     const hm = d => `${d.getHours()}:${pad2(d.getMinutes())}`;
 
     // 取得結果を画面に出す。stale があれば、更新できなかった理由つきの「古い情報」表示にする
-    function render(d, stale) {
+    function render(d, stale, again) {
+      lastShown = [d, stale];
       const { bed, wake, tonight: nTonight, last: nLast, real, why } = d;
       q('.bd-msg').textContent = '';
       q('.bd-place').textContent = `📍 ${d.addr}${d.zip ? `(〒${d.zip.slice(0, 3)}-${d.zip.slice(3)})` : ''}`;
@@ -875,7 +951,7 @@
       q('.bd-status').classList.toggle('stale', !!stale);
 
       const a = summarize(nTonight), b = summarize(nLast);
-      const v = decide(a, b, bed, nTonight);
+      const v = decide(a, b, bed, nTonight, th);
       const pj = t => t >= 22 ? ['夏用', '半袖・薄手', '🩳'] : t >= 15 ? ['春秋用', '長袖・薄手', '👕'] : ['冬用', '長袖・厚手', '🧥'];
       const cur3 = avg(d.avgs.slice(0, 3).filter(x => x != null));
       const old3 = avg(d.avgs.slice(1, 4).filter(x => x != null));
@@ -940,7 +1016,7 @@
       q('.bd-result').hidden = false;
       lastChart = [nTonight, nLast, !!real];
       drawChart(nTonight, nLast, !!real);
-      reviewFlow(d);
+      if (!again) reviewFlow(d);
       if (wantReview && !rvScrolled) { rvScrolled = true; setTimeout(() => { const el = q('#bdReview'); if (el && !left) el.scrollIntoView({ block: 'start' }); }, 60); }
     }
 
@@ -1006,7 +1082,7 @@
         }
         const data = await fetchData(target, bed, wake, ctl.signal);
         if (left) return;
-        save({ zip: target.zip, place: target.place, query: target.place ? placeQuery : '', bed, wake });   // 取得できた内容だけ保存する
+        save({ zip: target.zip, place: target.place, query: target.place ? placeQuery : '', bed, wake, th });   // 取得できた内容だけ保存する
         saveResult(data);
         render(data, null);
       } catch (err) {
