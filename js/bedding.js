@@ -721,10 +721,8 @@
     const saved = load();
     const hopt = (from, to, wrap) => { let s = ''; for (let h = from; h <= to; h++) s += `<option value="${wrap ? h % 24 : h}">${wrap ? h % 24 : h}:00</option>`; return s; };
     root.innerHTML = `<div class="bd">
-      <p class="bd-lead">昨夜と比べて、毛布をどうするか。郵便番号か地名の天気予報から目安を出します。</p>
-      <section class="card bd-loc">
-        <div class="bd-sumrow" hidden><span class="bd-sumtxt"></span><button type="button" class="btn ghost small bd-chg" aria-expanded="false" aria-controls="bdLocBody">変更</button></div>
-        <div class="bd-fold" id="bdLocBody">
+      <section class="card bd-set" id="bdSet">
+        <p class="bd-lead">昨夜と比べて、毛布をどうするか。郵便番号か地名の天気予報から目安を出します。</p>
         <form class="bd-form" novalidate>
           <label class="f bd-locl">郵便番号 か 地名
             <input class="bd-zip" inputmode="text" enterkeyhint="search" autocomplete="off" placeholder="例 150-0002 / 渋谷区" maxlength="40">
@@ -736,12 +734,7 @@
         <div class="bd-place" role="status"></div>
         <div class="bd-msg" role="alert"></div>
         <div class="bd-cands" hidden></div>
-        </div>
-      </section>
-      <section class="card bd-th">
-        <h2>気温のしきい値</h2>
-        <div class="bd-sumrow" hidden><span class="bd-sumtxt"></span><button type="button" class="btn ghost small bd-chg" aria-expanded="false" aria-controls="bdThBody">変更</button></div>
-        <div class="bd-fold" id="bdThBody">
+        <h2 class="bd-seth">気温のしきい値</h2>
         <form class="bd-thform" novalidate>
           <label class="f">寒くて起きる気温(℃)<input class="bd-th-cold" type="text" inputmode="decimal" autocomplete="off" maxlength="5"></label>
           <label class="f">暑くて起きる気温(℃)<input class="bd-th-hot" type="text" inputmode="decimal" autocomplete="off" maxlength="5"></label>
@@ -749,7 +742,6 @@
         </form>
         <div class="bd-note">寝る〜起きる時刻の予報気温が、この気温を下回る(寒い側)・上回る(暑い側)かで、エアコンや暑さの目安を出します。エアコンは下回る2時間前を目安にします。この端末にだけ保存します。</div>
         <div class="bd-thmsg" role="alert"></div>
-        </div>
       </section>
       <div class="bd-result" hidden>
         <div class="bd-status"><span class="bd-stext" role="status"></span><button type="button" class="btn ghost small bd-refresh" title="天気を取り直す">更新</button></div>
@@ -796,26 +788,20 @@
     // 気温のしきい値(寒い・暑い・エアコンを何時間前に入れるか)。保存は同じ設定のキー。入力の誤りは保存しない
     let th = saved.th, thSaved = saved.thSaved, lastShown = null;   // lastShown: 最後に描いた結果(しきい値を変えたとき描き直す)
     const thCold = q('.bd-th-cold'), thHot = q('.bd-th-hot'), thMsg = q('.bd-thmsg');
-    // 入力済みなら1行の要約にたたむ(「変更」で開く)。値が保存されていない初回は開いたまま。aria-expanded でキーボードからも操作できる
-    const fold = (card, body) => {
-      const row = q(`${card} .bd-sumrow`), txt = q(`${card} .bd-sumtxt`), btn = q(`${card} .bd-chg`), box = q(body);
-      const st = { has: false, open: true };
-      const apply = () => { row.hidden = !st.has; box.hidden = st.has && !st.open; btn.setAttribute('aria-expanded', String(!box.hidden)); btn.textContent = box.hidden ? '変更' : '閉じる'; };
-      btn.addEventListener('click', () => { st.open = !st.open; apply(); });
-      return {
-        set(text) { st.has = true; txt.textContent = text; apply(); },   // 要約を出してたたむ
-        open() { st.open = true; apply(); },                              // 誤り・候補の選択などで開く
-        collapse() { if (st.has) { st.open = false; apply(); } }
-      };
-    };
-    const locFold = fold('.bd-loc', '#bdLocBody'), thFold = fold('.bd-th', '#bdThBody');
-    const thText = () => `寒い ${fmt(th.cold)}℃ / 暑い ${fmt(th.hot)}℃`.replace(/\.0℃/g, '℃');
-    const locText = (name, bed, wake) => `📍 ${name} ・ ${bed}:00〜${wake}:00`;
+    // 設定(場所・時刻・気温のしきい値)は、トップバー右の「⚙ 設定」で開閉するパネルにまとめる。場所が未保存の初回は開いたまま。aria-expanded でキーボードからも操作できる
+    const setBtn = document.createElement('button');
+    setBtn.type = 'button'; setBtn.id = 'bdSetBtn'; setBtn.className = 'btn ghost small bd-setbtn'; setBtn.textContent = '⚙ 設定';
+    setBtn.setAttribute('aria-controls', 'bdSet'); setBtn.setAttribute('aria-expanded', 'false');
+    const topbar = document.querySelector('.topbar');
+    if (topbar) { topbar.append(setBtn); window.dispatchEvent(new Event('resize')); }   // 見出しの高さを測り直させる
+    const panel = q('#bdSet');
+    const setPanel = open => { panel.hidden = !open; setBtn.setAttribute('aria-expanded', String(open)); };
+    setBtn.addEventListener('click', () => setPanel(panel.hidden));
+    setPanel(!(saved.zip || saved.place));
+    const locFold = { set() {}, open: () => setPanel(true), collapse: () => setPanel(false) }, thFold = locFold;
+    const thText = () => `${fmt(th.cold)}℃/${fmt(th.hot)}℃`.replace(/\.0℃/g, '℃');
     const fillTh = () => { thCold.value = String(th.cold); thHot.value = String(th.hot); };
     fillTh();
-    if (thSaved) { thFold.set(thText()); thFold.collapse(); }
-    // 保存済みの場所があれば、1行の要約にたたんでおく(取得できたら住所に替わる。誤りが出れば開く)
-    if (saved.zip || saved.place) { locFold.set(locText(saved.place ? saved.place.name : `〒${saved.zip.slice(0, 3)}-${saved.zip.slice(3)}`, saved.bed, saved.wake)); locFold.collapse(); }
     q('.bd-thform').addEventListener('submit', e => {
       e.preventDefault();
       [thCold, thHot].forEach(el => el.classList.remove('bad'));
@@ -829,7 +815,7 @@
       th = r.th; fillTh();
       const p = load(); p.th = { cold: th.cold, hot: th.hot }; save(p); thSaved = true;
       thMsg.className = 'bd-thmsg'; thMsg.textContent = '';
-      thFold.set(thText()); thFold.collapse();
+      thFold.collapse();
       if (lastShown) render(lastShown[0], lastShown[1], true);   // 通信せず、保存済みの予報で判定だけやり直す
     });
 
@@ -997,11 +983,15 @@
       const { bed, wake, tonight: nTonight, last: nLast, real, why } = d;
       q('.bd-msg').textContent = '';
       q('.bd-place').textContent = `📍 ${d.addr}${d.zip ? `(〒${d.zip.slice(0, 3)}-${d.zip.slice(3)})` : ''}`;
-      locFold.set(locText(d.addr, bed, wake));
       if (!again) locFold.collapse();   // 取得できたら要約にたたむ(しきい値の保存からの描き直しでは、開いている欄はそのまま)
       const at = new Date(d.at), isToday = d.day === ymdKey(new Date());
-      const when = isToday ? `今日 ${hm(at)}` : `${at.getMonth() + 1}/${at.getDate()}`;
-      q('.bd-stext').textContent = stale ? `${when} の情報です。更新できませんでした(${stale})` : `${when} 更新`;
+      const when = isToday ? hm(at) : `${at.getMonth() + 1}/${at.getDate()} ${hm(at)}`;
+      // 結果の一番上に小さく1行: 場所 ・ 時刻 ・ しきい値 ・ 更新時刻(古いときは理由つき)。長い地名は省略記号で切る
+      const place0 = d.addr.replace(/^(東京都|北海道|京都府|大阪府|.{2,3}?県)(?=.)/, '');
+      const placeS = place0.length > 12 ? place0.slice(0, 11) + '…' : place0;
+      const stx = q('.bd-stext');
+      stx.title = d.addr;
+      stx.textContent = `${placeS} ・ ${bed}:00〜${wake}:00 ・ ${thText()} ・ ` + (stale ? `${when} の情報(更新できませんでした:${stale})` : `${when}更新`);
       q('.bd-status').classList.toggle('stale', !!stale);
 
       const a = summarize(nTonight), b = summarize(nLast);
@@ -1154,6 +1144,6 @@
     refreshEl.addEventListener('click', () => run('refresh'));
     if (saved.zip || saved.place) run('open');   // 保存済みの郵便番号があれば、この画面を開いたときに(同じ日の保存結果がなければ)取得する
 
-    return () => { left = true; window.removeEventListener('resize', onResize); clearTimeout(rt); if (ctl) ctl.abort(); rvCtl.abort(); };
+    return () => { left = true; setBtn.remove(); window.dispatchEvent(new Event('resize'));  window.removeEventListener('resize', onResize); clearTimeout(rt); if (ctl) ctl.abort(); rvCtl.abort(); };
   };
 })();
