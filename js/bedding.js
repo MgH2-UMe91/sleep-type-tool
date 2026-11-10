@@ -43,7 +43,7 @@
 
   // 保存するのは、郵便番号、または地名検索で選んだ場所(名前と緯度経度)。どちらか一方
   const load = () => {
-    const none = { zip: '', place: null, query: '', bed: 23, wake: 6, th: { ...TH_DEFAULT } };
+    const none = { zip: '', place: null, query: '', bed: 23, wake: 6, th: { ...TH_DEFAULT }, thSaved: false };
     try {
       const o = JSON.parse(localStorage.getItem(BEDDING_KEY) || '{}') || {};
       const zip = typeof o.zip === 'string' && /^\d{7}$/.test(o.zip) ? o.zip : '';
@@ -55,10 +55,10 @@
       const query = place ? safeText(o.query, 40) || '' : '';
       const bed = Number.isInteger(o.bed) && o.bed >= 0 && o.bed <= 23 ? o.bed : 23;
       const wake = Number.isInteger(o.wake) && o.wake >= 0 && o.wake <= 23 ? o.wake : 6;
-      return { zip, place: query ? place : null, query, bed, wake, th: cleanTh(o.th) || { ...TH_DEFAULT } };
+      return { zip, place: query ? place : null, query, bed, wake, th: cleanTh(o.th) || { ...TH_DEFAULT }, thSaved: !!cleanTh(o.th) };
     } catch (e) { return none; }
   };
-  const save = v => { try { localStorage.setItem(BEDDING_KEY, JSON.stringify(v)); } catch (e) { /* 保存できなくても動く */ } };
+  const save = v => { try { const { thSaved, ...rest } = v; localStorage.setItem(BEDDING_KEY, JSON.stringify(rest)); } catch (e) { /* 保存できなくても動く */ } };
 
   // 天気コード → 絵と言葉
   const WMO = c => {
@@ -696,7 +696,9 @@
     const hopt = (from, to, wrap) => { let s = ''; for (let h = from; h <= to; h++) s += `<option value="${wrap ? h % 24 : h}">${wrap ? h % 24 : h}:00</option>`; return s; };
     root.innerHTML = `<div class="bd">
       <p class="bd-lead">昨夜と比べて、毛布をどうするか。郵便番号か地名の天気予報から目安を出します。</p>
-      <section class="card">
+      <section class="card bd-loc">
+        <div class="bd-sumrow" hidden><span class="bd-sumtxt"></span><button type="button" class="btn ghost small bd-chg" aria-expanded="false" aria-controls="bdLocBody">変更</button></div>
+        <div class="bd-fold" id="bdLocBody">
         <form class="bd-form" novalidate>
           <label class="f bd-locl">郵便番号 か 地名
             <input class="bd-zip" inputmode="text" enterkeyhint="search" autocomplete="off" placeholder="例 150-0002 / 渋谷区" maxlength="40">
@@ -708,9 +710,12 @@
         <div class="bd-place" role="status"></div>
         <div class="bd-msg" role="alert"></div>
         <div class="bd-cands" hidden></div>
+        </div>
       </section>
       <section class="card bd-th">
         <h2>気温のしきい値</h2>
+        <div class="bd-sumrow" hidden><span class="bd-sumtxt"></span><button type="button" class="btn ghost small bd-chg" aria-expanded="false" aria-controls="bdThBody">変更</button></div>
+        <div class="bd-fold" id="bdThBody">
         <form class="bd-thform" novalidate>
           <label class="f">寒くて起きる気温(℃)<input class="bd-th-cold" type="text" inputmode="decimal" autocomplete="off" maxlength="5"></label>
           <label class="f">暑くて起きる気温(℃)<input class="bd-th-hot" type="text" inputmode="decimal" autocomplete="off" maxlength="5"></label>
@@ -719,6 +724,7 @@
         </form>
         <div class="bd-note">寝る〜起きる時刻の予報気温が、この気温を下回る(寒い側)・上回る(暑い側)かで、エアコンや暑さの目安を出します。この端末にだけ保存します。</div>
         <div class="bd-thmsg" role="alert"></div>
+        </div>
       </section>
       <div class="bd-result" hidden>
         <div class="bd-status"><span class="bd-stext" role="status"></span><button type="button" class="btn ghost small bd-refresh" title="天気を取り直す">更新</button></div>
@@ -737,15 +743,15 @@
           <div class="bd-plan"></div>
           <ul class="bd-tips"></ul>
         </div>
-        <section class="card"><h2>夜のあいだの天気</h2>
-          <div class="bd-hours"></div>
-          <div class="bd-note">青枠が最低気温の時間。☔ は雨の確率。</div>
-        </section>
         <section class="card"><h2>今夜と昨夜の比べ</h2>
           <div class="bd-note bd-srcline"></div>
           <div class="bd-chart"></div>
           <table class="bd-cmp"><thead><tr><th></th><th class="bd-lastth">昨夜</th><th>今夜</th><th>差</th></tr></thead><tbody></tbody></table>
           <div class="bd-note pre bd-nightlabel"></div>
+        </section>
+        <section class="card"><h2>夜のあいだの天気</h2>
+          <div class="bd-hours"></div>
+          <div class="bd-note">青枠が最低気温の時間。☔ は雨の確率。</div>
         </section>
         <section class="card bd-pj"></section>
         <p class="bd-night">🌙 良い夢を　おやすみなさい</p>
@@ -763,10 +769,28 @@
     if (wakeEl.value === '') wakeEl.value = '6';
 
     // 気温のしきい値(寒い・暑い・エアコンを何時間前に入れるか)。保存は同じ設定のキー。入力の誤りは保存しない
-    let th = saved.th, lastShown = null;   // lastShown: 最後に描いた結果(しきい値を変えたとき描き直す)
+    let th = saved.th, thSaved = saved.thSaved, lastShown = null;   // lastShown: 最後に描いた結果(しきい値を変えたとき描き直す)
     const thCold = q('.bd-th-cold'), thHot = q('.bd-th-hot'), thLead = q('.bd-th-lead'), thMsg = q('.bd-thmsg');
+    // 入力済みなら1行の要約にたたむ(「変更」で開く)。値が保存されていない初回は開いたまま。aria-expanded でキーボードからも操作できる
+    const fold = (card, body) => {
+      const row = q(`${card} .bd-sumrow`), txt = q(`${card} .bd-sumtxt`), btn = q(`${card} .bd-chg`), box = q(body);
+      const st = { has: false, open: true };
+      const apply = () => { row.hidden = !st.has; box.hidden = st.has && !st.open; btn.setAttribute('aria-expanded', String(!box.hidden)); btn.textContent = box.hidden ? '変更' : '閉じる'; };
+      btn.addEventListener('click', () => { st.open = !st.open; apply(); });
+      return {
+        set(text) { st.has = true; txt.textContent = text; apply(); },   // 要約を出してたたむ
+        open() { st.open = true; apply(); },                              // 誤り・候補の選択などで開く
+        collapse() { if (st.has) { st.open = false; apply(); } }
+      };
+    };
+    const locFold = fold('.bd-loc', '#bdLocBody'), thFold = fold('.bd-th', '#bdThBody');
+    const thText = () => `寒い ${fmt(th.cold)}℃ / 暑い ${fmt(th.hot)}℃ / ${th.lead ? `下回る${th.lead}時間前` : '下回る時刻に'}`.replace(/\.0℃/g, '℃');
+    const locText = (name, bed, wake) => `📍 ${name} ・ ${bed}:00〜${wake}:00`;
     const fillTh = () => { thCold.value = String(th.cold); thHot.value = String(th.hot); thLead.value = String(th.lead); };
     fillTh();
+    if (thSaved) { thFold.set(thText()); thFold.collapse(); }
+    // 保存済みの場所があれば、1行の要約にたたんでおく(取得できたら住所に替わる。誤りが出れば開く)
+    if (saved.zip || saved.place) { locFold.set(locText(saved.place ? saved.place.name : `〒${saved.zip.slice(0, 3)}-${saved.zip.slice(3)}`, saved.bed, saved.wake)); locFold.collapse(); }
     q('.bd-thform').addEventListener('submit', e => {
       e.preventDefault();
       [thCold, thHot, thLead].forEach(el => el.classList.remove('bad'));
@@ -774,11 +798,13 @@
       if (r.error) {
         thMsg.className = 'bd-thmsg err'; thMsg.textContent = r.error + '(保存していません)';
         r.bad.forEach(k => ({ cold: thCold, hot: thHot, lead: thLead })[k].classList.add('bad'));
+        thFold.open();
         return;
       }
       th = r.th; fillTh();
-      const p = load(); p.th = th; save(p);
-      thMsg.className = 'bd-thmsg ok'; thMsg.textContent = '保存しました';
+      const p = load(); p.th = th; save(p); thSaved = true;
+      thMsg.className = 'bd-thmsg'; thMsg.textContent = '';
+      thFold.set(thText()); thFold.collapse();
       if (lastShown) render(lastShown[0], lastShown[1], true);   // 通信せず、保存済みの予報で判定だけやり直す
     });
 
@@ -900,6 +926,7 @@
     window.addEventListener('resize', onResize);
 
     function showError(text) {
+      locFold.open();
       q('.bd-place').textContent = '';
       q('.bd-msg').textContent = text;
     }
@@ -945,6 +972,8 @@
       const { bed, wake, tonight: nTonight, last: nLast, real, why } = d;
       q('.bd-msg').textContent = '';
       q('.bd-place').textContent = `📍 ${d.addr}${d.zip ? `(〒${d.zip.slice(0, 3)}-${d.zip.slice(3)})` : ''}`;
+      locFold.set(locText(d.addr, bed, wake));
+      if (!again) locFold.collapse();   // 取得できたら要約にたたむ(しきい値の保存からの描き直しでは、開いている欄はそのまま)
       const at = new Date(d.at), isToday = d.day === ymdKey(new Date());
       const when = isToday ? `今日 ${hm(at)}` : `${at.getMonth() + 1}/${at.getDate()}`;
       q('.bd-stext').textContent = stale ? `${when} の情報です。更新できませんでした(${stale})` : `${when} 更新`;
@@ -1043,7 +1072,7 @@
     // mode: 'open'(画面を開いた) / 'show'(「表示」) / 'refresh'(「更新」)。chosen: 候補から選んだ場所
     async function run(mode, chosen) {
       const text = toHalf(zipEl.value).trim();
-      if (!text) { q('.bd-msg').textContent = '郵便番号か地名を入れてください'; zipEl.focus(); return; }
+      if (!text) { locFold.open(); q('.bd-msg').textContent = '郵便番号か地名を入れてください'; zipEl.focus(); return; }
       const bed = +bedEl.value, wake = +wakeEl.value;
       hideCands();
       if (busy) return;   // 通信中の二重実行を防ぐ
@@ -1075,6 +1104,7 @@
               candsEl.append(b);
             }
             candsEl.hidden = false;
+            locFold.open();
             q('.bd-result').hidden = true; lastChart = null;
             return;
           }
@@ -1082,7 +1112,7 @@
         }
         const data = await fetchData(target, bed, wake, ctl.signal);
         if (left) return;
-        save({ zip: target.zip, place: target.place, query: target.place ? placeQuery : '', bed, wake, th });   // 取得できた内容だけ保存する
+        save({ zip: target.zip, place: target.place, query: target.place ? placeQuery : '', bed, wake, th: thSaved ? th : undefined });   // 取得できた内容だけ保存する
         saveResult(data);
         render(data, null);
       } catch (err) {

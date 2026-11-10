@@ -131,3 +131,10 @@
 .bd .bd-thmsg:empty { display: none; }
 .bd .bd-thmsg.err { color: var(--err); }
 .bd .bd-thmsg.ok { color: var(--ok); }
+
+/* ---- 入力済みの欄を1行の要約にたたむ(場所・時刻のカードと、気温のしきい値のカード) ---- */
+.bd .bd-sumrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.bd .bd-sumrow[hidden], .bd .bd-fold[hidden] { display: none; }
+.bd .bd-sumtxt { flex: 1 1 auto; min-width: 0; font-size: .95rem; font-weight: 700; overflow-wrap: anywhere; }
+.bd .bd-chg { flex: none; }
+.bd .bd-th h2 { margin-bottom: 6px; }
