@@ -21,24 +21,24 @@
 
   // エアコン・暑さの判定に使う気温のしきい値(端末の localStorage だけ。バックアップには入れない)
   const AC_BORDER_C = 0.5;                                  // しきい値の±これ以内なら「微妙」と言う(寒い側・暑い側どちらも)
-  const TH_DEFAULT = { cold: 10, hot: 25, lead: 2 };         // 寒くて起きる気温 / 暑くて起きる気温 / エアコンを何時間前に入れるか
-  const TH_RANGE = { cold: [-10, 30], hot: [10, 45], lead: [0, 6] };
+  const TH_DEFAULT = { cold: 10, hot: 25, lead: 2 };         // 寒くて起きる気温 / 暑くて起きる気温 / エアコンを何時間前に入れるか(lead は固定。ここ1か所で持ち、画面からは変えない)
+  const TH_RANGE = { cold: [-10, 30], hot: [10, 45] };
   // 値を確かめて作り直す(読んだ保存値にも、入力にも同じ限定をかける)。範囲外・順序の誤りは null
   const cleanTh = t => {
     if (!t || typeof t !== 'object') return null;
-    const { cold, hot, lead } = t;
-    if (!inRange(cold, ...TH_RANGE.cold) || !inRange(hot, ...TH_RANGE.hot) || !Number.isInteger(lead) || !inRange(lead, ...TH_RANGE.lead) || !(cold < hot)) return null;
-    return { cold: Math.round(cold * 10) / 10, hot: Math.round(hot * 10) / 10, lead };
+    const { cold, hot } = t;   // 保存に lead(古い版の選択値)が残っていても読み捨てて、TH_DEFAULT.lead で動かす
+    if (!inRange(cold, ...TH_RANGE.cold) || !inRange(hot, ...TH_RANGE.hot) || !(cold < hot)) return null;
+    return { cold: Math.round(cold * 10) / 10, hot: Math.round(hot * 10) / 10, lead: TH_DEFAULT.lead };
   };
-  // 入力欄の文字を確かめる。返り値: { th } か { error, bad: ['cold'|'hot'|'lead'] }
-  function checkTh(coldText, hotText, leadText) {
+  // 入力欄の文字を確かめる。返り値: { th } か { error, bad: ['cold'|'hot'] }
+  function checkTh(coldText, hotText) {
     const num = t => { const x = toHalf(String(t)).trim(); return x !== '' && /^-?\d+(\.\d+)?$/.test(x) ? Number(x) : NaN; };
-    const cold = num(coldText), hot = num(hotText), lead = num(leadText);
+    const cold = num(coldText), hot = num(hotText);
     if (!Number.isFinite(cold) || !inRange(cold, ...TH_RANGE.cold)) return { error: `寒い気温は ${TH_RANGE.cold[0]}〜${TH_RANGE.cold[1]}℃ の数字で入れてください`, bad: ['cold'] };
     if (!Number.isFinite(hot) || !inRange(hot, ...TH_RANGE.hot)) return { error: `暑い気温は ${TH_RANGE.hot[0]}〜${TH_RANGE.hot[1]}℃ の数字で入れてください`, bad: ['hot'] };
     if (!(cold < hot)) return { error: `寒い気温(${fmt(cold)}℃)は、暑い気温(${fmt(hot)}℃)より低くしてください`, bad: ['cold', 'hot'] };
-    if (!Number.isInteger(lead) || !inRange(lead, ...TH_RANGE.lead)) return { error: `エアコンを入れるタイミングは ${TH_RANGE.lead[0]}〜${TH_RANGE.lead[1]} 時間前の整数で入れてください`, bad: ['lead'] };
-    return { th: cleanTh({ cold, hot, lead }) };
+
+    return { th: cleanTh({ cold, hot }) };
   }
 
   // 保存するのは、郵便番号、または地名検索で選んだ場所(名前と緯度経度)。どちらか一方
@@ -719,10 +719,9 @@
         <form class="bd-thform" novalidate>
           <label class="f">寒くて起きる気温(℃)<input class="bd-th-cold" type="text" inputmode="decimal" autocomplete="off" maxlength="5"></label>
           <label class="f">暑くて起きる気温(℃)<input class="bd-th-hot" type="text" inputmode="decimal" autocomplete="off" maxlength="5"></label>
-          <label class="f">エアコンを入れるのは<select class="bd-th-lead">${[0, 1, 2, 3, 4, 5, 6].map(n => `<option value="${n}">${n ? `下回る${n}時間前` : '下回る時刻に'}</option>`).join('')}</select></label>
           <button class="btn bd-thgo" type="submit">保存</button>
         </form>
-        <div class="bd-note">寝る〜起きる時刻の予報気温が、この気温を下回る(寒い側)・上回る(暑い側)かで、エアコンや暑さの目安を出します。この端末にだけ保存します。</div>
+        <div class="bd-note">寝る〜起きる時刻の予報気温が、この気温を下回る(寒い側)・上回る(暑い側)かで、エアコンや暑さの目安を出します。エアコンは下回る2時間前を目安にします。この端末にだけ保存します。</div>
         <div class="bd-thmsg" role="alert"></div>
         </div>
       </section>
@@ -770,7 +769,7 @@
 
     // 気温のしきい値(寒い・暑い・エアコンを何時間前に入れるか)。保存は同じ設定のキー。入力の誤りは保存しない
     let th = saved.th, thSaved = saved.thSaved, lastShown = null;   // lastShown: 最後に描いた結果(しきい値を変えたとき描き直す)
-    const thCold = q('.bd-th-cold'), thHot = q('.bd-th-hot'), thLead = q('.bd-th-lead'), thMsg = q('.bd-thmsg');
+    const thCold = q('.bd-th-cold'), thHot = q('.bd-th-hot'), thMsg = q('.bd-thmsg');
     // 入力済みなら1行の要約にたたむ(「変更」で開く)。値が保存されていない初回は開いたまま。aria-expanded でキーボードからも操作できる
     const fold = (card, body) => {
       const row = q(`${card} .bd-sumrow`), txt = q(`${card} .bd-sumtxt`), btn = q(`${card} .bd-chg`), box = q(body);
@@ -784,25 +783,25 @@
       };
     };
     const locFold = fold('.bd-loc', '#bdLocBody'), thFold = fold('.bd-th', '#bdThBody');
-    const thText = () => `寒い ${fmt(th.cold)}℃ / 暑い ${fmt(th.hot)}℃ / ${th.lead ? `下回る${th.lead}時間前` : '下回る時刻に'}`.replace(/\.0℃/g, '℃');
+    const thText = () => `寒い ${fmt(th.cold)}℃ / 暑い ${fmt(th.hot)}℃`.replace(/\.0℃/g, '℃');
     const locText = (name, bed, wake) => `📍 ${name} ・ ${bed}:00〜${wake}:00`;
-    const fillTh = () => { thCold.value = String(th.cold); thHot.value = String(th.hot); thLead.value = String(th.lead); };
+    const fillTh = () => { thCold.value = String(th.cold); thHot.value = String(th.hot); };
     fillTh();
     if (thSaved) { thFold.set(thText()); thFold.collapse(); }
     // 保存済みの場所があれば、1行の要約にたたんでおく(取得できたら住所に替わる。誤りが出れば開く)
     if (saved.zip || saved.place) { locFold.set(locText(saved.place ? saved.place.name : `〒${saved.zip.slice(0, 3)}-${saved.zip.slice(3)}`, saved.bed, saved.wake)); locFold.collapse(); }
     q('.bd-thform').addEventListener('submit', e => {
       e.preventDefault();
-      [thCold, thHot, thLead].forEach(el => el.classList.remove('bad'));
-      const r = checkTh(thCold.value, thHot.value, thLead.value);
+      [thCold, thHot].forEach(el => el.classList.remove('bad'));
+      const r = checkTh(thCold.value, thHot.value);
       if (r.error) {
         thMsg.className = 'bd-thmsg err'; thMsg.textContent = r.error + '(保存していません)';
-        r.bad.forEach(k => ({ cold: thCold, hot: thHot, lead: thLead })[k].classList.add('bad'));
+        r.bad.forEach(k => ({ cold: thCold, hot: thHot })[k].classList.add('bad'));
         thFold.open();
         return;
       }
       th = r.th; fillTh();
-      const p = load(); p.th = th; save(p); thSaved = true;
+      const p = load(); p.th = { cold: th.cold, hot: th.hot }; save(p); thSaved = true;
       thMsg.className = 'bd-thmsg'; thMsg.textContent = '';
       thFold.set(thText()); thFold.collapse();
       if (lastShown) render(lastShown[0], lastShown[1], true);   // 通信せず、保存済みの予報で判定だけやり直す
@@ -1112,7 +1111,7 @@
         }
         const data = await fetchData(target, bed, wake, ctl.signal);
         if (left) return;
-        save({ zip: target.zip, place: target.place, query: target.place ? placeQuery : '', bed, wake, th: thSaved ? th : undefined });   // 取得できた内容だけ保存する
+        save({ zip: target.zip, place: target.place, query: target.place ? placeQuery : '', bed, wake, th: thSaved ? { cold: th.cold, hot: th.hot } : undefined });   // 取得できた内容だけ保存する
         saveResult(data);
         render(data, null);
       } catch (err) {
