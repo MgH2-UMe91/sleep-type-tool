@@ -23,6 +23,8 @@
   const AC_BORDER_C = 0.5;                                  // しきい値の±これ以内なら「微妙」と言う(寒い側・暑い側どちらも)
   const TH_DEFAULT = { cold: 10, hot: 25, lead: 2 };         // 寒くて起きる気温 / 暑くて起きる気温 / エアコンを何時間前に入れるか(lead は固定。ここ1か所で持ち、画面からは変えない)
   const TH_RANGE = { cold: [-10, 30], hot: [10, 45] };
+  // 夜のあいだの急な気温変化(エアコンを勧める): SWING_HOURS 時間で SWING_C℃以上の変化。向かう先が、しきい値から SWING_MARGIN_C℃以内に入るときだけ
+  const SWING_HOURS = 3, SWING_C = 3, SWING_MARGIN_C = 3;
   // 値を確かめて作り直す(読んだ保存値にも、入力にも同じ限定をかける)。範囲外・順序の誤りは null
   const cleanTh = t => {
     if (!t || typeof t !== 'object') return null;
@@ -240,37 +242,61 @@
   // エアコンと暑さの判定(気温のしきい値で見る。体感温度ではなく、寝る〜起きる時刻の時間別の予報気温)
   //  寒い側: 寝る時点でしきい値未満 → 最初からON / 途中で初めて下回る → その lead 時間前にONタイマー(寝る時刻より前になるなら寝るときにON) / 下回らない → 勧めない
   //  最低気温がしきい値の ±AC_BORDER_C 以内なら断定せず「微妙。タイマー付きがおすすめ」。暑い側(最高気温)も同じ扱い
+  //  急な変化(3時間で3℃)も同じ値で見て、寒い側のエアコンは早いほうのON時刻を1つだけ出す
   function acAdvice(hours, th) {
     const hr = t => `${new Date(t).getHours()}時`;
     const bedT = hours[0].t.getTime();
     const temps = hours.map(h => h.temp);
     const min = Math.min(...temps), max = Math.max(...temps);
     const near = (v, th0) => Math.abs(v - th0) <= AC_BORDER_C + 1e-9;
+    const leadMs = th.lead * 3600000;
     const rows = [];
 
-    const iCold = temps.findIndex(v => v < th.cold);
-    let on = '', timing = '';
-    if (iCold >= 0) {
-      const crossT = hours[iCold].t.getTime();
-      const timerT = crossT - th.lead * 3600000;
-      if (iCold === 0) { on = '最初からエアコンON'; timing = `寝る${hr(bedT)}の予報が ${fmt(temps[0])}℃ で、${fmt(th.cold)}℃を下回っています`; }
-      else if (timerT <= bedT) { on = '寝るときにエアコンON'; timing = `${hr(crossT)}に ${fmt(th.cold)}℃を下回る予報。${th.lead}時間前は寝る時刻より前になるので、寝るときから`; }
-      else { on = `${hr(timerT)}にエアコンONタイマー`; timing = `${hr(crossT)}に ${fmt(th.cold)}℃を下回る予報の${th.lead ? `${th.lead}時間前` : 'ちょうどその時刻'}。寝てから${Math.round((timerT - bedT) / 3600000)}時間後に入`; }
+    // 急な変化: SWING_HOURS 時間ごと(1時間ずつずらして)の差。下がる=SWING_C℃以上下がり、下がった先が「寒い側しきい値 + SWING_MARGIN_C」未満 /
+    //   上がる=SWING_C℃以上上がり、上がった先が「暑い側しきい値 − SWING_MARGIN_C」超え(快適になる方向の変化を除く)。いちばん早い窓を使う
+    let fall = null, rise = null;
+    for (let i = 0; i + SWING_HOURS < hours.length; i++) {
+      const d = temps[i + SWING_HOURS] - temps[i];
+      if (!fall && d <= -SWING_C - 1e-9 && temps[i + SWING_HOURS] < th.cold + SWING_MARGIN_C) fall = { i, d: -d };
+      if (!rise && d >= SWING_C - 1e-9 && temps[i + SWING_HOURS] > th.hot - SWING_MARGIN_C) rise = { i, d };
     }
-    if (near(min, th.cold)) {
-      rows.push(['❄️ エアコン', `微妙。タイマー付きがおすすめ<br><small>(最低 ${fmt(min)}℃(${hr(hours[temps.indexOf(min)].t)})で、しきい値 ${fmt(th.cold)}℃のすぐそば${on ? `。入れるなら:${on}。${timing}` : '。下回る予報ではありませんが、冷えたら入るように'})</small>`]);
-    } else if (iCold >= 0) {
-      rows.push(['❄️ エアコン', `${on}<br><small>(${timing})</small>`]);
+    const swingTxt = s => `${hr(hours[s.i].t)}〜${hr(hours[s.i + SWING_HOURS].t)}に ${fmt(s.d).replace(/\.0$/, '')}℃`;
+
+    // 寒い側のエアコン: しきい値の判定と急に下がる判定のうち、早いほうのON時刻を1つだけ出す(同じ時刻ならしきい値の説明を主にして、急な下がりを添える)
+    const iCold = temps.findIndex(v => v < th.cold);
+    const cands = [];
+    if (iCold >= 0 && !near(min, th.cold)) {
+      const crossT = hours[iCold].t.getTime(), timerT = crossT - leadMs;
+      if (iCold === 0) cands.push({ t: bedT, kind: 'thr', on: '最初からエアコンON', why: `寝る${hr(bedT)}の予報が ${fmt(temps[0])}℃ で、${fmt(th.cold)}℃を下回っています` });
+      else if (timerT <= bedT) cands.push({ t: bedT, kind: 'thr', on: '寝るときにエアコンON', why: `${hr(crossT)}に ${fmt(th.cold)}℃を下回る予報。${th.lead}時間前は寝る時刻より前になるので、寝るときから` });
+      else cands.push({ t: timerT, kind: 'thr', on: `${hr(timerT)}にエアコンONタイマー`, why: `${hr(crossT)}に ${fmt(th.cold)}℃を下回る予報の${th.lead ? `${th.lead}時間前` : 'ちょうどその時刻'}。寝てから${Math.round((timerT - bedT) / 3600000)}時間後に入` });
+    }
+    if (fall) {
+      const startT = hours[fall.i].t.getTime(), timerT = startT - leadMs;
+      const whyF = `${swingTxt(fall)} 急に下がる予報`;
+      if (timerT <= bedT) cands.push({ t: bedT, kind: 'swing', on: '寝るときにエアコンON', why: `${whyF}。${th.lead}時間前は寝る時刻より前になるので、寝るときから` });
+      else cands.push({ t: timerT, kind: 'swing', on: `${hr(timerT)}にエアコンONタイマー`, why: `${whyF}。下がり始める${th.lead ? `${th.lead}時間前` : '時刻'}の${hr(timerT)}` });
+    }
+    if (cands.length) {
+      cands.sort((a, b) => a.t - b.t || (a.kind === 'thr' ? -1 : 1));
+      const main = cands[0], other = cands[1];
+      let why = main.why;
+      if (other) why += `。あわせて${other.kind === 'swing' ? ` ${swingTxt(fall)} 急に下がる予報` : ` ${hr(hours[iCold].t)}に ${fmt(th.cold)}℃を下回る予報`}`;
+      if (near(min, th.cold) && main.kind === 'swing') why += `。最低 ${fmt(min)}℃もしきい値 ${fmt(th.cold)}℃のすぐそば`;
+      rows.push(['❄️ エアコン', `${main.on}<br><small>(${why})</small>`]);
+    } else if (near(min, th.cold)) {
+      rows.push(['❄️ エアコン', `微妙。タイマー付きがおすすめ<br><small>(最低 ${fmt(min)}℃(${hr(hours[temps.indexOf(min)].t)})で、しきい値 ${fmt(th.cold)}℃のすぐそば。${iCold >= 0 ? `入れるなら:${hr(hours[iCold].t.getTime() - leadMs)}ごろ(${hr(hours[iCold].t)}に下回る予報の${th.lead}時間前)` : '下回る予報ではありませんが、冷えたら入るように'})</small>`]);
     } else {
       rows.push(['❄️ エアコン', `勧めません<br><small>(最低 ${fmt(min)}℃(${hr(hours[temps.indexOf(min)].t)})は、しきい値 ${fmt(th.cold)}℃以上)</small>`]);
     }
 
-    if (near(max, th.hot)) {
-      rows.push(['🔥 暑さ', `暑くなるかも(微妙)。寝具を薄めに/冷房を検討<br><small>(最高 ${fmt(max)}℃(${hr(hours[temps.indexOf(max)].t)})で、しきい値 ${fmt(th.hot)}℃のすぐそば)</small>`]);
-    } else if (max > th.hot) {
-      const iHot = temps.findIndex(v => v > th.hot);
-      rows.push(['🔥 暑さ', `暑くなる予報。寝具を薄めに/冷房を検討<br><small>(${hr(hours[iHot].t)}に ${fmt(th.hot)}℃を超え、最高 ${fmt(max)}℃)</small>`]);
-    }
+    // 暑い側: しきい値の判定と急に上がる判定を1行にまとめる。冷房は「検討」まで(タイマー時刻は出さない)
+    const hotParts = [];
+    let hotMain = '';
+    if (near(max, th.hot)) { hotMain = '暑くなるかも(微妙)。寝具を薄めに/冷房を検討'; hotParts.push(`最高 ${fmt(max)}℃(${hr(hours[temps.indexOf(max)].t)})で、しきい値 ${fmt(th.hot)}℃のすぐそば`); }
+    else if (max > th.hot) { hotMain = '暑くなる予報。寝具を薄めに/冷房を検討'; hotParts.push(`${hr(hours[temps.findIndex(v => v > th.hot)].t)}に ${fmt(th.hot)}℃を超え、最高 ${fmt(max)}℃`); }
+    if (rise) { hotParts.push(`${swingTxt(rise)} 急に上がる予報`); if (!hotMain) hotMain = '急に上がる予報。冷房のタイマーか、寝具を薄めに'; }
+    if (hotMain) rows.push(['🔥 暑さ', `${hotMain}<br><small>(${hotParts.join('。')})</small>`]);
     return rows;
   }
 
