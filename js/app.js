@@ -333,6 +333,80 @@ const BROWSER_NOTE_KEY = 'sleep-type-tool-browser-note-closed';
 let browserNoteClosed = false;
 const browserNoteHidden = () => { if (browserNoteClosed) return true; try { return localStorage.getItem(BROWSER_NOTE_KEY) === '1'; } catch (e) { return false; } };
 
+// ---- 「ホーム画面に追加」の案内ポップアップ(スマホのブラウザ版だけ。画面の下に出す。どの画面でも1回だけ)
+//  出す条件: ホーム画面のアプリで開いていない / スマホ(iPhone・Android) / 開いた日が2日以上(日付で数える。同じ日に何回開いても1回)
+//           / 「もう表示しない」を押していない / 「あとで」から14日たっている
+//  保存は端末の localStorage だけ(INSTALL_KEY)。バックアップのJSONには入れない
+const INSTALL_KEY = 'sleep-type-tool-install';
+const INSTALL_LATER_MS = 14 * 86400000;
+let installEvt = null, installPopupActive = false, installSetBtn = null, installClose = () => {};
+// Android の Chrome は、追加できる状態になると beforeinstallprompt を送ってくる。取っておいて「追加する」で使う
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (installSetBtn) installSetBtn(); });
+window.addEventListener('appinstalled', () => { installSave({ never: true }); installClose(); });
+const installLoad = () => {
+  try {
+    const o = JSON.parse(localStorage.getItem(INSTALL_KEY) || '{}') || {};
+    return { days: Array.isArray(o.days) ? o.days.filter(d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(-2) : [], laterAt: Number.isFinite(o.laterAt) ? o.laterAt : 0, never: o.never === true };
+  } catch (e) { return { days: [], laterAt: 0, never: false }; }
+};
+function installSave(patch) { try { localStorage.setItem(INSTALL_KEY, JSON.stringify({ ...installLoad(), ...patch })); } catch (e) { /* 保存できなければ出さない(数えられないため) */ } }
+const installOS = () => {
+  const ua = navigator.userAgent || '';
+  if (/iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ios';
+  return /Android/.test(ua) ? 'android' : '';
+};
+// 今日の訪問を数えて、案内を出す条件がそろっているか
+function installEligible() {
+  if (isStandalone() || !installOS()) return false;
+  const t = ymd(new Date());
+  const st0 = installLoad();
+  if (!st0.days.includes(t)) installSave({ days: [...st0.days, t].slice(-2) });
+  const st = installLoad();
+  return !st.never && st.days.length >= 2 && Date.now() - st.laterAt >= INSTALL_LATER_MS;
+}
+function showInstallPopup() {
+  if (!installPopupActive || document.getElementById('installPop')) return;
+  const os = installOS();
+  const hasRecs = Store.records().length > 0;
+  const pop = document.createElement('section');
+  pop.id = 'installPop'; pop.className = 'install-pop'; pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', 'ホーム画面に追加');
+  const steps = os === 'ios'
+    ? '<ol><li>画面の下(または上)の共有ボタン <span class="ip-ic" aria-hidden="true">⎙</span>(□に↑)をタップ</li><li>メニューを少し上へ送り、「ホーム画面に追加」をタップ</li><li>右上の「追加」をタップ</li></ol><p class="small muted">Safari で開いているときの手順です。他のブラウザなら、Safari で開き直してください。</p>'
+    : '<div class="ip-android"></div>';
+  pop.innerHTML = `<p class="ip-title">ホーム画面に追加すると、アプリのようにすぐ開けます</p>
+    ${steps}
+    ${os === 'ios' ? (hasRecs
+      ? '<p class="ip-warn">⚠ いまの記録は、追加したアプリには引き継がれません。先に <a href="#data" id="ipData">データ管理</a> で JSON を書き出し、追加したアプリの「データ管理」で読み込んでください。</p>'
+      : '<p class="small">追加したアプリとブラウザ版では、記録が別々に保存されます。普段使うほうを1つに決めてください(引き継ぐときは <a href="#data" id="ipData">データ管理</a> の JSON を使います)。</p>') : ''}
+    <div class="ip-btns"><button type="button" class="btn ghost small" id="ipLater">あとで</button><button type="button" class="btn ghost small" id="ipNever">もう表示しない</button></div>`;
+  document.body.append(pop);
+  const close = () => { installPopupActive = false; installSetBtn = null; installClose = () => {}; pop.remove(); document.removeEventListener('keydown', onKey); };
+  const later = () => { installSave({ laterAt: Date.now() }); close(); };
+  const onKey = e => { if (e.key === 'Escape') later(); };
+  document.addEventListener('keydown', onKey);
+  installClose = close;
+  pop.querySelector('#ipLater').onclick = later;
+  pop.querySelector('#ipNever').onclick = () => { installSave({ never: true }); close(); };
+  const dl = pop.querySelector('#ipData');
+  if (dl) dl.onclick = () => close();   // 書き出しに行く。記録はしない(また次の訪問で出る)
+  if (os === 'android') {
+    const box = pop.querySelector('.ip-android');
+    installSetBtn = () => {
+      if (installEvt) {
+        box.innerHTML = '<button type="button" class="btn" id="ipAdd">追加する</button>';
+        box.querySelector('#ipAdd').onclick = async () => {
+          const ev = installEvt; installEvt = null;
+          try { ev.prompt(); const r = await ev.userChoice; if (r && r.outcome === 'accepted') { installSave({ never: true }); close(); } else later(); }
+          catch (e) { later(); }
+        };
+      } else {
+        box.innerHTML = '<ol><li>画面の右上の︙メニューをタップ</li><li>「ホーム画面に追加」または「アプリをインストール」をタップ</li></ol>';
+      }
+    };
+    installSetBtn();   // イベントがまだ・来ないブラウザでは手順の案内。あとからイベントが来たらボタンに替わる
+  }
+}
+
 function viewHome(root) {
   // 「今夜」の日付。早朝(NIGHT_START_HOUR 時より前)は前日の夜として扱う。入力の初期日付と同じ規則
   const today = tonightYmd();
@@ -346,7 +420,7 @@ function viewHome(root) {
 
   const standalone = isStandalone();
   root.innerHTML = `
-  ${!standalone && !browserNoteHidden() ? `<section class="note-bar small" id="browserNote">
+  ${!standalone && !browserNoteHidden() && !installPopupActive ? `<section class="note-bar small" id="browserNote">
     <p>ここはブラウザ版です。ホーム画面に追加したアプリとは記録が別々に保存されます。普段使うほうを1つに決めてください(追加の手順は<a href="#about">このアプリについて</a>)。</p>
     <button type="button" class="note-x" id="browserNoteX" aria-label="この案内を閉じる">✕</button></section>` : ''}
   ${standalone && !recs.length ? `<section class="msg ok">記録を引き継ぐには、ブラウザ版の「データ管理」で JSON を書き出し、ここの<a href="#data">データ管理</a>から読み込んでください。</section>` : ''}
@@ -1597,7 +1671,9 @@ setTopbarH();
 window.addEventListener('resize', setTopbarH);
 window.addEventListener('hashchange', route);
 window.addEventListener('storage', e => { if (e.key === STORAGE_KEY) { Store.load(); route(); } });
+installPopupActive = installEligible();   // 条件がそろっていれば、ホームの小さな案内バーは出さず、ポップアップに任せる
 route();
+if (installPopupActive) setTimeout(showInstallPopup, 1500);
 // 公式イベントの最新を読み込む(配信前・読めないときは何もしない)。変わっていたら、イベントを出している画面を描き直す
 // カレンダーはスクロール位置が戻ってしまうので描き直さない(次に開いたときに反映)
 // 今動いている版(index.html の ?v=)と、サーバーの最新の index.html を比べ、違えば再読み込みを案内する
