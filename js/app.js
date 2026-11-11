@@ -67,6 +67,21 @@ function ask(msg, { ok = 'OK', danger = false, extra = '', cancel = 'やめる' 
   });
 }
 
+// ファイルを渡す。iPhone では、共有シートで保存できるとき(canShare が files を受け付ける)はそれを使い、そうでなければ通常のダウンロード。
+// 返り値: 'shared' | 'downloaded' | 'cancelled'(共有シートを閉じた)。タップの直後に呼ぶこと(共有は await の後だと拒否される)
+async function deliverFile(name, text, type) {
+  try {
+    if (installOS() === 'ios' && navigator.share && navigator.canShare) {
+      const file = new File([text], name, { type });
+      if (navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file] }); return 'shared'; }
+        catch (e) { if (e && e.name === 'AbortError') return 'cancelled'; /* 共有できなければダウンロードにする */ }
+      }
+    }
+  } catch (e) { /* 共有を使えない環境では、下のダウンロード */ }
+  download(name, text, type);
+  return 'downloaded';
+}
 function download(name, text, type) {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = document.createElement('a'); a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
@@ -423,6 +438,8 @@ function viewHome(root) {
   ${!standalone && !browserNoteHidden() && !installPopupActive ? `<section class="note-bar small" id="browserNote">
     <p>ここはブラウザ版です。ホーム画面に追加したアプリとは記録が別々に保存されます。普段使うほうを1つに決めてください(追加の手順は<a href="#about">このアプリについて</a>)。</p>
     <button type="button" class="note-x" id="browserNoteX" aria-label="この案内を閉じる">✕</button></section>` : ''}
+  ${(() => { const rc = Store.recovery(); return rc.blocked ? '<section class="msg err">保存データを読み込めず、元のデータを退避できなかったため、保存を止めています。ブラウザの保存領域を空けてから、ページを開き直してください。</section>'
+    : rc.list.length ? '<section class="msg warn">保存データの一部を読み込めなかったため、元の内容を退避してあります。<a href="#data">データ管理</a>で書き出せます。</section>' : ''; })()}
   ${standalone && !recs.length ? `<section class="msg ok">記録を引き継ぐには、ブラウザ版の「データ管理」で JSON を書き出し、ここの<a href="#data">データ管理</a>から読み込んでください。</section>` : ''}
   <section class="card hero ${plan.type ? 'k-' + plan.type : ''}">
     <div class="row"><span class="small muted">${fmtDateLong(today)}の夜</span><span class="guess">推定にもとづく提案</span></div>
@@ -1420,6 +1437,11 @@ function viewData(root) {
     <div class="grid2"><button class="btn" id="expJson">JSONで書き出す</button><button class="btn ghost" id="expCsv">CSVで書き出す</button></div>
     <p class="small muted">JSON:狙い・週の計画・設定も含む完全なバックアップ。CSV:記録だけ(表計算ソフト用)。</p>
   </section>
+  <section class="card" id="brokenBox" hidden>
+    <h2>退避した保存データ</h2>
+    <p class="small muted">保存データが読み込めなかった(または一部を読み飛ばした)ときに、元の内容をそのまま写しておいたものです。書き出して取っておけば、作者に見せて復元の相談ができます。</p>
+    <div class="stack broken-list"></div>
+  </section>
   <section class="card">
     <h2>読み込み(復元)</h2>
     <input type="file" id="imp" accept=".json,.csv,application/json,text/csv">
@@ -1444,8 +1466,29 @@ function viewData(root) {
     <button class="btn danger" id="wipe">すべて削除する</button>
   </section>`;
 
-  $('#expJson', root).onclick = () => { download(`sleep-type-tool-${stamp()}.json`, Store.exportJson(), 'application/json'); toast('JSONを書き出しました'); viewData(root); };
-  $('#expCsv', root).onclick = () => { download(`sleep-type-tool-${stamp()}.csv`, Store.exportCsv(), 'text/csv'); toast('CSVを書き出しました'); viewData(root); };
+  // 「最後の書き出し」は、ファイルを渡せたあとに更新する(共有をやめたときは更新しない)
+  const exportAs = async (ext, text, type, at, label) => {
+    let res;
+    try { res = await deliverFile(`sleep-type-tool-${stamp()}.${ext}`, text, type); } catch (e) { res = 'cancelled'; }
+    if (res === 'cancelled') { toast('書き出しをやめました'); return; }
+    try { Store.markExported(at); } catch (e) { toast('書き出しましたが、書き出した日時を保存できませんでした'); return; }
+    toast(`${label}を${res === 'shared' ? '共有しました' : '書き出しました'}`); viewData(root);
+  };
+  $('#expJson', root).onclick = () => { const at = new Date().toISOString(); exportAs('json', Store.exportJson(at), 'application/json', at, 'JSON'); };
+  $('#expCsv', root).onclick = () => { exportAs('csv', Store.exportCsv(), 'text/csv', new Date().toISOString(), 'CSV'); };
+  // 読めなかった保存データの退避(あるときだけ)
+  const brk = Store.recovery(), brokenBox = $('#brokenBox', root);
+  if (brokenBox && brk.list.length) {
+    brokenBox.hidden = false;
+    brokenBox.querySelector(".broken-list").innerHTML = brk.list.map(b => `<div class="row" data-bk="${esc(b.key)}"><span class="small">${esc(b.at.replace(/^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)$/, '$1/$2/$3 $4:$5'))} に退避(${Math.max(1, Math.round(b.chars / 1024))}KB)</span>
+      <button type="button" class="btn ghost small" data-bk-save>書き出す</button><button type="button" class="btn ghost small" data-bk-del>削除</button></div>`).join('');
+    brokenBox.onclick = async e => {
+      const row = e.target.closest('[data-bk]'); if (!row) return;
+      const key = row.dataset.bk;
+      if (e.target.closest('[data-bk-save]')) { const t = Store.brokenText(key); if (t !== null) { const r = await deliverFile(`sleep-type-tool-broken-${key.slice(key.indexOf('-broken-') + 8)}.txt`, t, 'text/plain'); toast(r === 'cancelled' ? '書き出しをやめました' : '退避データを書き出しました'); } }
+      else if (e.target.closest('[data-bk-del]') && await ask('退避したデータを削除します。元に戻せません。', { ok: '削除する', danger: true })) { Store.removeBroken(key); viewData(root); }
+    };
+  }
   const imp = $('#imp', root);
   imp.onchange = () => { $('#doImp', root).disabled = !imp.files.length; };
   $('#doImp', root).onclick = async () => {

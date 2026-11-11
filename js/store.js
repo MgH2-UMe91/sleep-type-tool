@@ -101,8 +101,8 @@ const Store = (() => {
     const out = empty();
     if (!d || typeof d !== 'object') return out;
     out.records = Array.isArray(d.records) ? d.records.map(normalizeRecord).filter(Boolean) : [];
-    out.weekTargets = Array.isArray(d.weekTargets) ? d.weekTargets.filter(t => isYmd(t.weekStart) && TARGETS.includes(t.target)) : [];
-    out.dayTargets = Array.isArray(d.dayTargets) ? d.dayTargets.filter(t => isYmd(t.date) && TARGETS.includes(t.target)) : [];
+    out.weekTargets = Array.isArray(d.weekTargets) ? d.weekTargets.filter(t => t && typeof t === 'object' && isYmd(t.weekStart) && TARGETS.includes(t.target)).map(t => ({ weekStart: t.weekStart, target: t.target })) : [];
+    out.dayTargets = Array.isArray(d.dayTargets) ? d.dayTargets.filter(t => t && typeof t === 'object' && isYmd(t.date) && TARGETS.includes(t.target)).map(t => ({ date: t.date, target: t.target })) : [];
     out.weekPlans = Array.isArray(d.weekPlans) ? d.weekPlans.map(cleanWeekPlan).filter(Boolean) : [];
     out.events = Array.isArray(d.events) ? d.events.map(cleanEvent).filter(Boolean) : [];
     // 設定は知っている項目だけを、決まった形の値で受け取る(読み込んだファイルの値をそのまま画面に出さないため)。
@@ -188,12 +188,53 @@ const Store = (() => {
     return (crypto.randomUUID ? crypto.randomUUID() : 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
   }
 
+  // ---------- 読めなかった保存データの退避 ----------
+  // 保存データが壊れている・読み飛ばした項目があるときは、元の文字列を別のキー(BROKEN_PREFIX + 日時)へ写してから、読めた分だけで動く。
+  // 次の保存で元データが上書きされても、退避したものは残る(データ管理で書き出せる)。退避できない(容量不足)ときは、上書きを避けるため保存を止める
+  const BROKEN_PREFIX = STORAGE_KEY + '-broken-';
+  const BROKEN_KEEP = 3;
+  let saveBlocked = false;
+  const brokenKeys = () => { const out = []; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith(BROKEN_PREFIX)) out.push(k); } } catch (e) { /* 読めなければ空 */ } return out.sort(); };
+  function backupRaw(raw) {
+    try {
+      if (brokenKeys().some(k => localStorage.getItem(k) === raw)) return true; // すでに退避済み(何度も読み直しても増やさない)
+      const t = new Date();
+      const base = BROKEN_PREFIX + `${t.getFullYear()}${pad2(t.getMonth() + 1)}${pad2(t.getDate())}${pad2(t.getHours())}${pad2(t.getMinutes())}${pad2(t.getSeconds())}`;
+      let key = base, n = 2;
+      while (localStorage.getItem(key) !== null) key = `${base}-${n++}`; // 同じ秒に別の内容を退避しても上書きしない
+      localStorage.setItem(key, raw);
+      for (const k of brokenKeys().slice(0, -BROKEN_KEEP)) localStorage.removeItem(k);
+      return true;
+    } catch (e) { return false; }
+  }
+  // 退避したデータの一覧 { key, at(キーの日時), chars }
+  const brokenList = () => brokenKeys().map(k => { let raw = ''; try { raw = localStorage.getItem(k) || ''; } catch (e) { /* 空 */ } return { key: k, at: k.slice(BROKEN_PREFIX.length, BROKEN_PREFIX.length + 14), chars: raw.length }; });
+  const brokenText = key => { try { return brokenKeys().includes(key) ? localStorage.getItem(key) : null; } catch (e) { return null; } };
+  function removeBroken(key) { if (brokenKeys().includes(key)) { try { localStorage.removeItem(key); } catch (e) { /* 何もしない */ } } }
+
   function load() {
-    try { db = migrate(JSON.parse(localStorage.getItem(STORAGE_KEY))); }
-    catch (e) { db = empty(); }
+    saveBlocked = false;
+    let raw = null;
+    try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) { raw = null; }
+    if (raw === null) { db = empty(); return db; }
+    try {
+      const parsed = JSON.parse(raw);
+      db = migrate(parsed);
+      // 形が合わず読み飛ばした記録があるときも、元の文字列を残す
+      if (parsed && Array.isArray(parsed.records) && parsed.records.length > db.records.length && !backupRaw(raw)) saveBlocked = true;
+    } catch (e) {
+      db = empty();
+      // 退避できたら元のキーは空ける(退避を消したあとに、同じ壊れたデータをまた退避しないため)。できなければ元のまま残し、保存を止める
+      if (backupRaw(raw)) { try { localStorage.removeItem(STORAGE_KEY); } catch (e2) { /* 何もしない */ } } else saveBlocked = true;
+    }
     return db;
   }
-  function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }
+  function save() {
+    if (saveBlocked) throw new Error('保存データを読み込めず、元のデータを退避できなかったため、保存を止めています。ブラウザの保存領域を空けてから、ページを開き直してください');
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  }
+  // ホームの案内用:退避データがあるか、保存を止めているか
+  const recovery = () => ({ blocked: saveBlocked, list: brokenList() });
   const get = () => db || load();
 
   // 日付→就寝時刻の順に並べる(0:00〜3:59 の就寝はその日付の夜の後半)
@@ -211,6 +252,12 @@ const Store = (() => {
   }
   // 同じ睡眠の記録か(日付+就寝時刻)
   const sameSleep = (a, b) => a.date === b.date && (a.bedTime || '') === (b.bedTime || '');
+  // 読み込みで「同じ記録」とみなす条件。画面では、同じ日付・就寝時刻の記録を確認のうえ2件保存できる(分割睡眠など)ので、
+  // 日付+就寝時刻が同じだけでは重複にしない。id が同じか、id・作成/更新時刻以外が全部同じ(コピーの二重取り込み)のときだけ。
+  // id の無い行(外部のCSV。_noId の印が付く)だけは、日付+就寝時刻でも重複とみなす(同じ行を二度読んだ場合の代わり)
+  const CONTENT_COLS = RECORD_COLUMNS.filter(c => !['id', 'createdAt', 'updatedAt'].includes(c));
+  const sameContent = (a, b) => CONTENT_COLS.every(c => (a[c] ?? '') === (b[c] ?? ''));
+  const isSameRecord = (a, b) => a.id === b.id || sameContent(a, b) || ((a._noId || b._noId) && sameSleep(a, b));
   // 「自分の傾向」から外す/戻す
   function setExcluded(id, v) {
     const r = get().records.find(x => x.id === id);
@@ -272,14 +319,13 @@ const Store = (() => {
   function removeEvent(id) { const d = get(); d.events = d.events.filter(x => x.id !== id); save(); }
 
   // ---------- 書き出し・読み込み ----------
-  function exportJson() {
+  // 書き出しの文字列を作るだけ(「最後の書き出し」は変えない)。ファイルを渡せたあとに markExported(at) を呼ぶ
+  function exportJson(at = nowIso()) {
     const d = get();
-    d.lastExportAt = nowIso(); save();
-    return JSON.stringify({ app: 'sleep-type-tool', exportedAt: d.lastExportAt, ...d }, null, 2);
+    return JSON.stringify({ app: 'sleep-type-tool', exportedAt: at, ...d, lastExportAt: at }, null, 2);
   }
+  function markExported(at = nowIso()) { const d = get(); d.lastExportAt = at; save(); }
   function exportCsv() {
-    const d = get();
-    d.lastExportAt = nowIso(); save();
     const esc = v => { const s = v === null || v === undefined ? '' : String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const lines = [RECORD_COLUMNS.join(',')].concat(records().map(r => RECORD_COLUMNS.map(c => esc(r[c])).join(',')));
     return '﻿' + lines.join('\r\n') + '\r\n';
@@ -318,7 +364,7 @@ const Store = (() => {
     } else {
       const rows = parseCsv(text);
       if (!rows.length || !('date' in rows[0])) throw new Error('CSVの1行目に列名(date など)がありません');
-      incoming = { rawCount: rows.length, records: rows.map(normalizeRecord).filter(Boolean), weekTargets: [], dayTargets: [], hasSettings: false };
+      incoming = { rawCount: rows.length, records: rows.map(row => { const rec = normalizeRecord(row); if (rec && !isSafeId(row.id)) rec._noId = true; return rec; }).filter(Boolean), weekTargets: [], dayTargets: [], hasSettings: false };
     }
     const invalid = incoming.rawCount - incoming.records.length;
     const d = get();
@@ -328,9 +374,10 @@ const Store = (() => {
       try { save(); } catch (e) { db = migrate(JSON.parse(before)); throw new Error('端末の保存領域が足りず、読み込めませんでした'); }
     };
     if (mode === 'replace') {
-      // ファイルの中に同じ記録(id、または日付+就寝時刻)が2つ以上あるときは、最初の1件だけ読み込む(追加読み込みと同じ判定)
+      // ファイルの中に同じ記録(idが同じ、または中身が全部同じ)が2つ以上あるときは、最初の1件だけ読み込む(追加読み込みと同じ判定。日付+就寝時刻だけが同じ別の記録は、分割睡眠として残す)
       const kept = [];
-      for (const r of incoming.records) if (!kept.some(x => x.id === r.id || sameSleep(x, r))) kept.push(r);
+      for (const r of incoming.records) if (!kept.some(x => isSameRecord(x, r))) kept.push(r);
+      for (const r of kept) delete r._noId;
       const dups = incoming.records.length - kept.length;
       d.records = kept;
       if (isJson) { d.weekTargets = incoming.weekTargets; d.dayTargets = incoming.dayTargets; d.weekPlans = incoming.weekPlans; d.events = incoming.events; if (incoming.hasSettings) d.settings = incoming.settings; }
@@ -339,7 +386,8 @@ const Store = (() => {
     }
     let added = 0, skipped = 0;
     for (const r of incoming.records) {
-      const dup = d.records.some(x => x.id === r.id || sameSleep(x, r));
+      const dup = d.records.some(x => isSameRecord(x, r));
+      delete r._noId;
       if (dup) skipped++; else { d.records.push(r); added++; }
     }
     for (const t of incoming.weekTargets) if (!d.weekTargets.some(x => x.weekStart === t.weekStart)) d.weekTargets.push(t);
@@ -350,8 +398,8 @@ const Store = (() => {
     return { added, skipped, invalid };
   }
 
-  function clearAll() { const s = get().settings; db = empty(); db.settings = s; save(); }
+  function clearAll() { const s = get().settings; db = empty(); db.settings = s; saveBlocked = false; save(); brokenKeys().forEach(k => { try { localStorage.removeItem(k); } catch (e) { /* 何もしない */ } }); }
 
   return { load, get, records, upsertRecord, setExcluded, deleteRecord, findDuplicate, findSameDateUnsure, newId, setWeekTarget, setDayTarget, targetOf, weekPlan, setWeekPlan, dayPlan,
-    setSetting, upsertEvent, removeEvent, exportJson, exportCsv, importText, clearAll, normalizeRecord };
+    setSetting, upsertEvent, removeEvent, exportJson, exportCsv, markExported, importText, clearAll, normalizeRecord, recovery, brokenText, removeBroken };
 })();

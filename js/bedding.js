@@ -257,7 +257,7 @@
     let fall = null, rise = null;
     for (let i = 0; i + SWING_HOURS < hours.length; i++) {
       const d = temps[i + SWING_HOURS] - temps[i];
-      if (!fall && d <= -SWING_C - 1e-9 && temps[i + SWING_HOURS] < th.cold + SWING_MARGIN_C) fall = { i, d: -d };
+      if (!fall && d <= -SWING_C + 1e-9 && temps[i + SWING_HOURS] < th.cold + SWING_MARGIN_C) fall = { i, d: -d };
       if (!rise && d >= SWING_C - 1e-9 && temps[i + SWING_HOURS] > th.hot - SWING_MARGIN_C) rise = { i, d };
     }
     const swingTxt = s => `${hr(hours[s.i].t)}〜${hr(hours[s.i + SWING_HOURS].t)}に ${fmt(s.d).replace(/\.0$/, '')}℃`;
@@ -269,7 +269,7 @@
       const crossT = hours[iCold].t.getTime(), timerT = crossT - leadMs;
       if (iCold === 0) cands.push({ t: bedT, kind: 'thr', on: '最初からエアコンON', why: `寝る${hr(bedT)}の予報が ${fmt(temps[0])}℃ で、${fmt(th.cold)}℃を下回っています` });
       else if (timerT <= bedT) cands.push({ t: bedT, kind: 'thr', on: '寝るときにエアコンON', why: `${hr(crossT)}に ${fmt(th.cold)}℃を下回る予報。${th.lead}時間前は寝る時刻より前になるので、寝るときから` });
-      else cands.push({ t: timerT, kind: 'thr', on: `${hr(timerT)}にエアコンONタイマー`, why: `${hr(crossT)}に ${fmt(th.cold)}℃を下回る予報の${th.lead ? `${th.lead}時間前` : 'ちょうどその時刻'}。寝てから${Math.round((timerT - bedT) / 3600000)}時間後に入` });
+      else cands.push({ t: timerT, kind: 'thr', on: `${hr(timerT)}にエアコンONタイマー`, why: `${hr(crossT)}に ${fmt(th.cold)}℃を下回る予報の${th.lead ? `${th.lead}時間前` : 'ちょうどその時刻'}。寝てから${Math.round((timerT - bedT) / 3600000)}時間後に入れる` });
     }
     if (fall) {
       const startT = hours[fall.i].t.getTime(), timerT = startT - leadMs;
