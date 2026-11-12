@@ -73,6 +73,8 @@ const Calc = (() => {
   }
 
   const averageAt = (refDate, range, opts) => stats(pick(Store.records(), refDate, range, opts));
+  // 基準日(含む)までの直近30回の記録(古い順)。ホームの「直近30回 ゲームの平均」と同じ件数・同じ選び方(集計外も含む)
+  const recentRecords = refDate => pick(Store.records(), refDate, 'count');
 
   // ---------- 自分の傾向 ----------
   // 記録の件数から、数字の確からしさの目安:30回未満=参考値、30〜99回=目安、100回以上=安定
@@ -381,6 +383,6 @@ const Calc = (() => {
     return ((hmToMin(w) - hmToMin(b)) % 1440 + 1440) % 1440;
   }
 
-  return { pick, stats, averageAt, reliability, tendency, tendencyAt, suspicious, estimateType, planFor, windowDays, perDayAt, upcomingTargets,
+  return { pick, stats, averageAt, recentRecords, reliability, tendency, tendencyAt, suspicious, estimateType, planFor, windowDays, perDayAt, upcomingTargets,
     windowAt, projectAverage, abandonImpact, likelyTonight, nextWeekForecast, forecastGrade, missingDays, spanMin, fmtMd };
 })();

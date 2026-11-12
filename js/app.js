@@ -240,6 +240,26 @@ function windowCard(today, compact = false) {
   </section>`;
 }
 
+// ホーム:直近30回の睡眠タイプ。上の段=1回ごとの判定(表示タイプ)の色帯、下の段=1回ごとの割合の積み上げ棒(下から うとうと・すやすや・ぐっすり)。
+// 「平均」カードの直近30回と同じ記録(Calc.recentRecords)を、古い順に左から並べる。分割睡眠は1回ずつ
+function typeHistoryCard(today) {
+  const rs = Calc.recentRecords(today), n = rs.length;
+  if (!n) return '';
+  const cnt = { uto: 0, suya: 0, gus: 0, none: 0 };
+  for (const r of rs) if (r.type in cnt) cnt[r.type]++;
+  const label = `直近${n}回の睡眠タイプ`;
+  const dates = n === 1 ? [rs[0].date] : n === 2 ? [rs[0].date, rs[1].date] : [rs[0].date, rs[(n - 1) >> 1].date, rs[n - 1].date];
+  const aria = `${label}(古い順)。うとうと${cnt.uto}回、すやすや${cnt.suya}回、ぐっすり${cnt.gus}回、とくちょうなし${cnt.none}回。${Calc.fmtMd(rs[0].date)}から${Calc.fmtMd(rs[n - 1].date)}までの記録`;
+  return `<section class="card hist30" role="img" aria-label="${esc(aria)}">
+    <h2>${label}</h2>
+    <div class="hist-lab small muted" aria-hidden="true">判定</div>
+    <div class="hist-strip" aria-hidden="true">${rs.map(r => `<i class="${r.type ? 't-' + r.type : 't-empty'}"></i>`).join('')}</div>
+    <div class="hist-lab small muted" aria-hidden="true">各回の割合</div>
+    <div class="hist-bars" aria-hidden="true">${rs.map(r => `<div><i class="t-gus" style="flex:${r.gusPct}"></i><i class="t-suya" style="flex:${r.suyaPct}"></i><i class="t-uto" style="flex:${r.utoPct}"></i></div>`).join('')}</div>
+    <div class="hist-ax small muted num" aria-hidden="true">${dates.map(d => `<span>${Calc.fmtMd(d)}</span>`).join('')}</div>
+  </section>`;
+}
+
 // 予報の見出しと補足(今夜・来週で共通)。when: '今夜' | '来週'、vs: 比べた基準の言い方
 function forecastHead(when, f, uLabel, vs) {
   const sign = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
@@ -457,6 +477,7 @@ function viewHome(root) {
     <div class="row">${missing.map(d => `<a class="btn ghost small" href="#input?date=${d}">${fmtDate(d)}</a>`).join('')}</div></section>` : ''}
   ${likelyCard(today, plan)}
   ${nextWeekCard(today, plan)}
+  ${typeHistoryCard(today)}
   ${plan.kind === 'prep' || plan.kind === 'usual' ? windowCard(today, true) : ''}
   <section class="card">
     <h2>平均</h2>
