@@ -240,7 +240,7 @@ function windowCard(today, compact = false) {
   </section>`;
 }
 
-// ホーム:直近30回の睡眠タイプ。上の段=1回ごとの判定(表示タイプ)の色帯、下の段=1回ごとの割合の積み上げ棒(下から うとうと・すやすや・ぐっすり)。
+// ホーム:直近30回の睡眠タイプ。上の段=1回ごとの判定(表示タイプ)の色帯、下の段=1回ごとの割合の積み上げ棒(下から ぐっすり・すやすや・うとうと)。
 // 「平均」カードの直近30回と同じ記録(Calc.recentRecords)を、古い順に左から並べる。分割睡眠は1回ずつ
 function typeHistoryCard(today) {
   const rs = Calc.recentRecords(today), n = rs.length;
@@ -255,7 +255,7 @@ function typeHistoryCard(today) {
     <div class="hist-lab small muted" aria-hidden="true">判定</div>
     <div class="hist-strip" aria-hidden="true">${rs.map(r => `<i class="${r.type ? 't-' + r.type : 't-empty'}"></i>`).join('')}</div>
     <div class="hist-lab small muted" aria-hidden="true">各回の割合</div>
-    <div class="hist-bars" aria-hidden="true">${rs.map(r => `<div><i class="t-gus" style="flex:${r.gusPct}"></i><i class="t-suya" style="flex:${r.suyaPct}"></i><i class="t-uto" style="flex:${r.utoPct}"></i></div>`).join('')}</div>
+    <div class="hist-bars" aria-hidden="true">${rs.map(r => `<div><i class="t-uto" style="flex:${r.utoPct}"></i><i class="t-suya" style="flex:${r.suyaPct}"></i><i class="t-gus" style="flex:${r.gusPct}"></i></div>`).join('')}</div>
     <div class="hist-ax small muted num" aria-hidden="true">${dates.map(d => `<span>${Calc.fmtMd(d)}</span>`).join('')}</div>
   </section>`;
 }
