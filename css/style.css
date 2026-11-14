@@ -305,7 +305,6 @@ details.manual[open] > summary { margin-bottom: 8px; }
   :root:not([data-theme="light"]) .ev-tag { background: #3a2f63; color: #ddd2ff; }
   :root:not([data-theme="light"]) .ev-tag.free { background: #4a2a1f; color: #ffc9b5; }
 }
-.cal-days button.day.ev::after { content: ""; position: absolute; left: 4px; right: 4px; bottom: 3px; height: 3px; border-radius: 2px; background: #8b6cf0; }
 .week.boost { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok) inset; }
 .ev-list .ev-item, .list .ev-item { display: flex; flex-direction: column; gap: 4px; }
 .hidden-ev { opacity: .55; }

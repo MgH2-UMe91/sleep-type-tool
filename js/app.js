@@ -1001,7 +1001,7 @@ function viewCalendar(root, id, q) {
         const aim = aimOf(day);
         const evs = evByDate[day] || [];
         const mn = Moon.markOf(day);
-        cells += `<button type="button" class="day ${day === today ? 'today' : ''} ${evs.length ? 'ev' : ''} ${aim ? 'aim k-' + aim : ''}" data-d="${day}"
+        cells += `<button type="button" class="day ${day === today ? 'today' : ''} ${aim ? 'aim k-' + aim : ''}" data-d="${day}"
           aria-label="${fmtDateLong(day)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}${aim ? ' 狙い' + TARGET_LABEL[aim] : ''}${evs.length ? ' イベント ' + esc(evs.map(e => Events.displayTitle(e.title)).join('、')) : ''}${mn ? ` ${mn.mark}(${MOON_NAME[mn.phase]}${mn.exact ? 'の日' : 'の前後'})` : ''}">
           ${mn ? `<span class="moon ${mn.phase} ${mn.exact ? 'exact' : ''}" aria-hidden="true">${MOON_ICON[mn.phase]}</span>` : ''}
           ${rs.length ? `<span class="mark" aria-hidden="true">${rs.map(() => '<i></i>').join('')}</span>` : ''}
