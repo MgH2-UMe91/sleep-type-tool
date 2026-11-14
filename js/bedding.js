@@ -751,15 +751,6 @@
             <span class="rv-sum"></span><span class="rv-chev" aria-hidden="true">▸</span></button>
           <div class="rv-wrap" id="rvBody" hidden></div>
         </section>
-        <div class="bd-verdict">
-          <div class="bd-when"><div class="bd-wl"></div><div class="bd-wn"></div></div>
-          <div class="bd-head" hidden></div>
-          <div class="bd-icon"></div>
-          <div class="bd-main"></div>
-          <div class="bd-why"></div>
-          <div class="bd-plan"></div>
-          <ul class="bd-tips"></ul>
-        </div>
         <section class="card"><h2>今夜と昨夜の比べ</h2>
           <div class="bd-note bd-srcline"></div>
           <div class="bd-chart"></div>
@@ -770,6 +761,15 @@
           <div class="bd-hours"></div>
           <div class="bd-note">青枠が最低気温の時間。☔ は雨の確率。</div>
         </section>
+        <div class="bd-verdict">
+          <div class="bd-when"><div class="bd-wl"></div><div class="bd-wn"></div></div>
+          <div class="bd-head" hidden></div>
+          <div class="bd-icon"></div>
+          <div class="bd-main"></div>
+          <div class="bd-why"></div>
+          <div class="bd-plan"></div>
+          <ul class="bd-tips"></ul>
+        </div>
         <section class="card bd-pj"></section>
         <p class="bd-night">🌙 良い夢を　おやすみなさい</p>
       </div>
