@@ -1007,8 +1007,7 @@ function viewCalendar(root, id, q) {
           ${mn ? `<span class="moon ${mn.phase} ${mn.exact ? 'exact' : ''}" aria-hidden="true">${MOON_ICON[mn.phase]}</span>` : ''}
           ${rs.length ? `<span class="mark" aria-hidden="true">${rs.map(() => '<i></i>').join('')}</span>` : ''}
           <span class="dline"><span class="d">${Number(day.slice(8))}</span>${aim ? `<span class="aimk" aria-hidden="true">${AIM_CHAR[aim]}狙</span>` : ''}</span>
-          ${rs.some(r => r.excluded) ? '<span class="exm">集計外</span>' : ''}
-          ${rs.map(r => `<span class="tl ${r.type ? 't-' + r.type : 't-empty'}">${SHORT[r.type]}</span>`).join('')}
+          ${rs.map(r => `<span class="tl ${r.type ? 't-' + r.type : 't-empty'}">${SHORT[r.type]}</span>${r.excluded ? '<span class="exm">集計外</span>' : ''}`).join('')}
         </button>`;
       }
       // この週(この月の分)に開催中のイベント名を短くして並べる
