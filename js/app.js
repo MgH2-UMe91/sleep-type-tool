@@ -1252,13 +1252,13 @@ function calDetailHtml(d, rs) {
           <div class="avg3 num small">${KINDS.map(k => `<span>${est.diffs[k] >= 0 ? '+' : ''}${est.diffs[k].toFixed(1)}</span>`).join('')}</div></div>` : ''}
       </div>
       ${rs.indexOf(r) === 0 ? typeHistoryCard(tonightYmd(), true) : ''}
-      ${est ? `<p class="small">推定タイプ:${tchip(est.type)} <span class="guess">推定</span></p>` : '<p class="small muted">これより前の記録がないため、推定タイプは出せません。</p>'}
+      ${est ? `<p class="small">アプリ内の計算:${tchip(est.type)}</p>` : '<p class="small muted">これより前の記録がないため、アプリ内の計算は出せません。</p>'}
       ${r.memo ? `<p class="small">メモ:${esc(r.memo)}</p>` : ''}
       <details class="fold rec-about" data-rec="${esc(r.id)}"><summary class="small">この記録について</summary>
         <div class="stack">
           ${est ? `<p class="small muted">${est.ranks
-            ? `推定タイプは、この夜の割合が${full ? `直近${RANGE_N}回` : `それまでの${est.prior.n}回`}の中で一番上位だったもの。どのタイプも上位${Math.round((1 - TYPE_RANK_MIN) * 100)}%に入らなければ「とくちょうなし」(決め方もしきい値も推定)`
-            : `記録が${TYPE_OWN_MIN_N}回そろうまでは、世界平均の代わりの仮の値(${KINDS.map(k => `${TYPE_LABEL[k]}${WORLD_AVG_GUESS[k]}%`).join('・')})より${WORLD_NEAR_PT}ポイント以上多いタイプを推定タイプにしています(仮の値)`}</p>` : ''}
+            ? `アプリ内の計算は、この夜の割合が${full ? `直近${RANGE_N}回` : `それまでの${est.prior.n}回`}の中で一番上位だったタイプを選んでいます。どのタイプも上位${Math.round((1 - TYPE_RANK_MIN) * 100)}%に入らなければ「とくちょうなし」(決め方もしきい値も推定)`
+            : `記録が${TYPE_OWN_MIN_N}回そろうまでは、世界平均の代わりの仮の値(${KINDS.map(k => `${TYPE_LABEL[k]}${WORLD_AVG_GUESS[k]}%`).join('・')})より${WORLD_NEAR_PT}ポイント以上多いタイプをアプリ内の計算の結果にしています(仮の値)`}</p>` : ''}
           <p class="small muted">入力元:${{ manual: '手入力', ocr: 'スクショ', ocr_edited: 'スクショ(修正あり)' }[r.source]}</p>
           <div class="row"><button type="button" class="btn ghost small" data-ex="${esc(r.id)}">${r.excluded ? '集計外を解除' : '傾向の集計に含めない'}</button>
             <span class="small muted">計測ミス・放置など。「自分の傾向」の100回・全期間から外します。直近30回(ゲームの平均)には含まれます。</span></div>
@@ -1438,7 +1438,7 @@ function viewStats(root) {
       <ul class="small muted" style="margin:0;padding-left:1.2em">
         <li>重み付き平均:睡眠時間で重み付け(Σ割合×睡眠分 ÷ Σ睡眠分)。分割睡眠の短い方の影響が小さくなります。睡眠時間のない記録は計算に入れません。</li>
         <li>標準偏差:母標準偏差(件数で割る)。</li>
-        <li>直近30回:新しい順に30件。ホーム・カレンダー・推定タイプ・今夜の狙いはすべてこの平均を使います。</li>
+        <li>直近30回:新しい順に30件。ホーム・カレンダーのアプリ内の計算・今夜の狙いはすべてこの平均を使います。</li>
         <li>参考:直近30日:基準日を含む過去30日の全記録(検証用。分割睡眠の日は2件とも入ります)。</li>
       </ul>
     </section>`;
