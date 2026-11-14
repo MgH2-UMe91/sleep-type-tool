@@ -1005,7 +1005,6 @@ function viewCalendar(root, id, q) {
         cells += `<button type="button" class="day ${day === today ? 'today' : ''} ${aim ? 'aim k-' + aim : ''}" data-d="${day}"
           aria-label="${fmtDateLong(day)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}${aim ? ' 狙い' + TARGET_LABEL[aim] : ''}${evs.length ? ' イベント ' + esc(evs.map(e => Events.displayTitle(e.title)).join('、')) : ''}${mn ? ` ${mn.mark}(${MOON_NAME[mn.phase]}${mn.exact ? 'の日' : 'の前後'})` : ''}">
           ${mn ? `<span class="moon ${mn.phase} ${mn.exact ? 'exact' : ''}" aria-hidden="true">${MOON_ICON[mn.phase]}</span>` : ''}
-          ${rs.length ? `<span class="mark" aria-hidden="true">${rs.map(() => '<i></i>').join('')}</span>` : ''}
           <span class="dline"><span class="d">${Number(day.slice(8))}</span>${aim ? `<span class="aimk" aria-hidden="true">${AIM_CHAR[aim]}狙</span>` : ''}</span>
           ${rs.map(r => `<span class="tl ${r.type ? 't-' + r.type : 't-empty'}">${SHORT[r.type]}</span>${r.excluded ? '<span class="exm">集計外</span>' : ''}`).join('')}
         </button>`;
@@ -1051,7 +1050,7 @@ function viewCalendar(root, id, q) {
   const range = (a, b) => { const out = []; for (let ym = a; ym <= b; ym = addMonths(ym, 1)) out.push(ym); return out; };
 
   root.innerHTML = `
-    <p class="small muted">緑の点=入力済み(分割睡眠は件数分) · 色と文字=表示タイプ(なし/うと/すや/ぐっ) · 色の帯=狙う週(札を押すと週の計画) · 狙○=日ごとの狙い · 紫の線=イベント · 🌕/●=満月・新月の前後</p>
+    <p class="small muted">色と文字=表示タイプ(なし/うと/すや/ぐっ) · 色の帯=狙う週(札を押すと週の計画) · 狙○=日ごとの狙い · 紫の線=イベント · 🌕/●=満月・新月の前後</p>
     <p class="small muted">GSD=満月の前後(満月の日と前後1日の計3日)、NMD=新月の前後(新月の日と前後1日の計3日)。${YAMI}=${YAMI_NOTE}イベント</p>
     <div id="calTop" class="small muted cal-more"></div>
     <div id="calList">${range(from, lastMonth).map(monthHtml).join('')}</div>

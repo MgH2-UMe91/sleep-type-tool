@@ -227,8 +227,6 @@ th { color: var(--muted); font-size: .78rem; font-weight: 700; }
 }
 .cal-days button.day .d { font-size: .8rem; font-family: var(--f-num); }
 .cal-days button.day .tl { font-size: .65rem; font-weight: 700; border-radius: 4px; padding: 0 3px; color: var(--chip-ink); line-height: 1.5; }
-.cal-days button.day .mark { position: absolute; top: 3px; right: 3px; display: flex; gap: 2px; }
-.cal-days button.day .mark i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
 .cal-days button.day.today { outline: 2px solid var(--accent); outline-offset: -2px; }
 .cal-more { text-align: center; min-height: 1px; }
 .today-btn { position: fixed; right: 84px; bottom: calc(72px + env(safe-area-inset-bottom, 0px)); z-index: 8; border-radius: 99px; box-shadow: 0 2px 8px rgba(0,0,0,.25); min-height: 40px; padding: 6px 18px; }
