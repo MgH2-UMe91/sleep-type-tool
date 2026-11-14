@@ -370,6 +370,7 @@ body.has-fab main { padding-bottom: 88px; }
 .install-pop .ip-android .btn { width: 100%; }
 /* ホーム:直近30回の睡眠タイプ(判定の色帯と、割合の積み上げ棒) */
 .hist30 { gap: 4px; }
+.hist-embed { display: flex; flex-direction: column; } /* 詳細シートの中:枠なし */
 .hist30 .hist-lab { margin-top: 6px; }
 .hist-strip, .hist-bars { display: flex; gap: 2px; border-radius: 6px; overflow: hidden; }
 .hist-strip { height: 22px; }

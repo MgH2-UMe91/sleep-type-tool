@@ -242,7 +242,8 @@ function windowCard(today, compact = false) {
 
 // ホーム:直近30回の睡眠タイプ。上の段=1回ごとの判定(表示タイプ)の色帯、下の段=1回ごとの割合の積み上げ棒(下から ぐっすり・すやすや・うとうと)。
 // 「平均」カードの直近30回と同じ記録(Calc.recentRecords)を、古い順に左から並べる。分割睡眠は1回ずつ
-function typeHistoryCard(today) {
+// embedded=true:記録の詳細シートの中に入れる形(カードの枠なし・見出しはシートの小見出しの大きさ)
+function typeHistoryCard(today, embedded = false) {
   const rs = Calc.recentRecords(today), n = rs.length;
   if (!n) return '';
   const cnt = { uto: 0, suya: 0, gus: 0, none: 0 };
@@ -250,8 +251,8 @@ function typeHistoryCard(today) {
   const label = `直近${n}回の睡眠タイプ`;
   const dates = n === 1 ? [rs[0].date] : n === 2 ? [rs[0].date, rs[1].date] : [rs[0].date, rs[(n - 1) >> 1].date, rs[n - 1].date];
   const aria = `${label}(古い順)。うとうと${cnt.uto}回、すやすや${cnt.suya}回、ぐっすり${cnt.gus}回、とくちょうなし${cnt.none}回。${Calc.fmtMd(rs[0].date)}から${Calc.fmtMd(rs[n - 1].date)}までの記録`;
-  return `<section class="card hist30" role="img" aria-label="${esc(aria)}">
-    <h2>${label}</h2>
+  return `<section class="${embedded ? 'hist30 hist-embed' : 'card hist30'}" role="img" aria-label="${esc(aria)}">
+    ${embedded ? `<h3>${label}</h3>` : `<h2>${label}</h2>`}
     <div class="hist-lab small muted" aria-hidden="true">判定</div>
     <div class="hist-strip" aria-hidden="true">${rs.map(r => `<i class="${r.type ? 't-' + r.type : 't-empty'}"></i>`).join('')}</div>
     <div class="hist-lab small muted" aria-hidden="true">各回の割合</div>
@@ -1248,10 +1249,9 @@ function calDetailHtml(d, rs) {
         ${cmpRow('この夜', k => r[PCT_KEY[k]], String)}
         ${est ? `${cmpRow(full ? avgName : `${avgName}(${RANGE_N}回未満)`, k => est.prior[k].mean)}
         <div class="stack avg3-row"><b class="small">${full ? 'ゲーム内平均' : '平均'}との差</b>
-          <div class="avg3 num small">${KINDS.map(k => `<span>${est.diffs[k] >= 0 ? '+' : ''}${est.diffs[k].toFixed(1)}</span>`).join('')}</div></div>
-        ${est.ranks ? `<div class="stack avg3-row"><b class="small">${full ? `直近${RANGE_N}回` : `それまでの${est.prior.n}回`}の中の位置</b>
-          <div class="avg3 num small">${KINDS.map(k => `<span>上位${Math.round((1 - est.ranks[k]) * 100)}%</span>`).join('')}</div></div>` : ''}` : ''}
+          <div class="avg3 num small">${KINDS.map(k => `<span>${est.diffs[k] >= 0 ? '+' : ''}${est.diffs[k].toFixed(1)}</span>`).join('')}</div></div>` : ''}
       </div>
+      ${rs.indexOf(r) === 0 ? typeHistoryCard(tonightYmd(), true) : ''}
       ${est ? `<p class="small">推定タイプ:${tchip(est.type)} <span class="guess">推定</span></p>` : '<p class="small muted">これより前の記録がないため、推定タイプは出せません。</p>'}
       ${r.memo ? `<p class="small">メモ:${esc(r.memo)}</p>` : ''}
       <details class="fold rec-about" data-rec="${esc(r.id)}"><summary class="small">この記録について</summary>
@@ -1274,7 +1274,7 @@ function calDetailHtml(d, rs) {
     ${(() => { const mn = Moon.markOf(d); return mn ? `<p class="small"><span class="moon-tag ${mn.phase}">${MOON_ICON[mn.phase]}${mn.mark}</span> ${MOON_NAME[mn.phase]}:${fmtDate(mn.center)} ${mn.time}(日本時間)${mn.exact ? '' : `。この日は${MOON_NAME[mn.phase]}の${d < mn.center ? '前日' : '翌日'}`}</p>` : ''; })()}
     ${eventListHtml(Events.byDate()[d] || [])}
     <div class="list">${items || '<p class="small muted">記録はありません。</p>'}</div>
-    ${rs.length ? avgBlock(a30n, 'この日時点の直近30回(この日を含む)') : `<h3>この日時点の平均</h3>${avgBlock(a30n, '直近30回')}`}
+    ${rs.length ? '' : `<h3>この日時点の平均</h3>${avgBlock(a30n, '直近30回')}`}
   </div>`;
 }
 
