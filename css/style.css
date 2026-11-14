@@ -205,8 +205,9 @@ th { color: var(--muted); font-size: .78rem; font-weight: 700; }
 /* 週の行:左端が週の列(週の計画の絵文字。7日の狙いが同じならそのタイプの色)、右がマスと帯 */
 .cal-week { margin-top: 3px; display: grid; grid-template-columns: 26px minmax(0, 1fr); column-gap: 3px; }
 .cal-week > .cal-days { grid-column: 2; grid-row: 1; }
-.cal-week > .wk-bars { grid-column: 2; grid-row: 2; }
-.wk-side { grid-column: 1; grid-row: 1 / span 2; appearance: none; font: inherit; color: var(--ink); padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+.cal-week > .wk-bars { grid-column: 2; grid-row: 1; align-self: end; position: relative; z-index: 2; pointer-events: none; } /* 帯はマスの内側の下に重ねる(--bh=帯の高さぶん、マスの下に空ける) */
+.cal-week { --bh: 0px; }
+.wk-side { grid-column: 1; grid-row: 1; appearance: none; font: inherit; color: var(--ink); padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
   display: flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1; cursor: pointer; touch-action: manipulation; min-width: 0;
   font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
 .wk-side.k-uto { --k: var(--t-uto); } .wk-side.k-suya { --k: var(--t-suya); } .wk-side.k-gus { --k: var(--t-gus); }
@@ -322,16 +323,16 @@ details.manual[open] > summary { margin-bottom: 8px; }
 .cal-days button.day .moon.exact { color: var(--ink); font-weight: 700; } /* 満月・新月の当日は濃く */
 .cal-days button.day .d { margin-top: 6px; }
 /* マスの下の紫の線(イベント)とタイプの札が重ならないよう、下に余白をとる(分割睡眠で2件あっても欠けない) */
-.cal-days button.day { padding-bottom: 8px; }
+.cal-days button.day { padding-bottom: calc(8px + var(--bh, 0px)); }
 .update-bar { position: fixed; left: 12px; right: 12px; bottom: calc(72px + env(safe-area-inset-bottom, 0px)); z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 8px;
   background: var(--accent); color: var(--accent-ink); border-radius: 12px; padding: 8px 12px; font-size: .9rem; box-shadow: 0 2px 10px rgba(0,0,0,.3); }
 .update-bar .btn { background: var(--accent-ink); color: var(--accent); border-color: var(--accent-ink); }
 
 /* カレンダーの週の帯(イベント・GSD/NMD)。日の列にそろえ、重なる帯は下の段に積む */
-.wk-bars { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-flow: row dense; gap: 2px 3px; margin: 2px 0; }
+.wk-bars { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-flow: row dense; gap: 2px 3px; margin: 0 0 4px; }
 .wk-bars .bar {
   appearance: none; font: inherit; font-size: .66rem; font-weight: 700; line-height: 1.5; text-align: left;
-  min-width: 0; padding: 0 5px; border-radius: 4px; cursor: pointer; touch-action: manipulation;
+  min-width: 0; padding: 0 5px; margin: 0 2px; border-radius: 4px; cursor: pointer; touch-action: manipulation; pointer-events: auto;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .plan-note { overflow-wrap: anywhere; }

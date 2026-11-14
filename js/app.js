@@ -1119,6 +1119,7 @@ function viewCalendar(root, id, q) {
         el.style.gridColumn = `${spot[1]} / ${spot[2] + 1}`;
       }
       if (!box.children.length) box.remove(); // 帯が全部なくなった週は、空の段を残さない
+      else box.parentElement.style.setProperty('--bh', `${box.offsetHeight + 4}px`); // 帯の高さぶん、マスの内側の下を空ける
     }
   }
   layoutBars(list);
