@@ -1251,7 +1251,7 @@ function calDetailHtml(d, rs) {
         <div class="stack avg3-row"><b class="small">${full ? 'ゲーム内平均' : '平均'}との差</b>
           <div class="avg3 num small">${KINDS.map(k => `<span>${est.diffs[k] >= 0 ? '+' : ''}${est.diffs[k].toFixed(1)}</span>`).join('')}</div></div>` : ''}
       </div>
-      ${rs.indexOf(r) === 0 ? typeHistoryCard(tonightYmd(), true) : ''}
+      ${rs.indexOf(r) === 0 ? typeHistoryCard(d, true) : ''}
       ${est ? `<p class="small">アプリ内の計算:${tchip(est.type)}</p>` : '<p class="small muted">これより前の記録がないため、アプリ内の計算は出せません。</p>'}
       ${r.memo ? `<p class="small">メモ:${esc(r.memo)}</p>` : ''}
       <details class="fold rec-about" data-rec="${esc(r.id)}"><summary class="small">この記録について</summary>
