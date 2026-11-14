@@ -198,19 +198,25 @@ th { color: var(--muted); font-size: .78rem; font-weight: 700; }
 .cal-head { position: sticky; top: var(--topbar-h, 46px); z-index: 4; background: var(--bg); padding: 8px 0 4px; display: flex; flex-direction: column; gap: 4px; }
 .cal-head h2 { font-size: 1rem; }
 .cal-wd, .cal-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.cal-wd { grid-template-columns: 26px repeat(7, minmax(0, 1fr)); } /* 左の空欄は、週の列(.wk-side)と同じ幅 */
 .cal-wd span { text-align: center; font-size: .72rem; color: var(--muted); }
 .cal-wd .sat { color: #3a6fd8; } .cal-wd .sun { color: #d14a3f; }
 .cal-week { margin-top: 3px; }
-/* 狙う週:札・帯・7日分のマスをまとめてタイプの色の枠で囲み、ごく薄く色を敷く(月をまたぐ週は月ごとの行がそれぞれ囲まれる) */
-.cal-week.aim { --wk: var(--accent); border: 2px solid var(--wk); background: color-mix(in srgb, var(--wk) 10%, transparent); padding: 3px; border-radius: 8px; }
-.cal-week.k-uto { --wk: var(--t-uto); }
-.cal-week.k-suya { --wk: var(--t-suya); }
-.cal-week.k-gus { --wk: var(--t-gus); }
-/* 終わった週の狙い:枠・札・背景を薄く(文字は読める濃さのまま)。記録・イベントの表示はそのまま */
-.cal-week.aim.past { border-color: color-mix(in srgb, var(--wk) 45%, transparent); background: color-mix(in srgb, var(--wk) 4%, transparent); }
-.cal-week .wk-tag.past { background: color-mix(in srgb, var(--wk) 40%, var(--surface)); color: var(--ink); font-weight: 600; }
-.cal-days button.day .tg.past { opacity: .6; }
-.wk-tag { display: inline-block; font-size: .68rem; font-weight: 700; padding: 0 6px; border-radius: 4px; color: var(--chip-ink); margin: 2px 0; }
+/* 週の行:左端が週の列(週の計画の絵文字。7日の狙いが同じならそのタイプの色)、右がマスと帯 */
+.cal-week { margin-top: 3px; display: grid; grid-template-columns: 26px minmax(0, 1fr); column-gap: 3px; }
+.cal-week > .cal-days { grid-column: 2; grid-row: 1; }
+.cal-week > .wk-bars { grid-column: 2; grid-row: 2; }
+.wk-side { grid-column: 1; grid-row: 1 / span 2; appearance: none; font: inherit; color: var(--ink); padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+  display: flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1; cursor: pointer; touch-action: manipulation; min-width: 0;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
+.wk-side.k-uto { --k: var(--t-uto); } .wk-side.k-suya { --k: var(--t-suya); } .wk-side.k-gus { --k: var(--t-gus); }
+.wk-side.k-uto, .wk-side.k-suya, .wk-side.k-gus { background: color-mix(in srgb, var(--k) 85%, var(--surface)); border-color: var(--k); }
+/* 狙いのある日:マスを狙うタイプの色で薄く塗り、上辺に色の線。日付の横に枠付きの「う狙」 */
+.cal-days button.day.k-uto { --k: var(--t-uto); } .cal-days button.day.k-suya { --k: var(--t-suya); } .cal-days button.day.k-gus { --k: var(--t-gus); }
+.cal-days button.day.aim { background: color-mix(in srgb, var(--k) 16%, var(--surface)); box-shadow: inset 0 3px 0 var(--k); }
+.cal-days button.day .dline { display: flex; align-items: center; justify-content: center; gap: 2px; margin-top: 6px; max-width: 100%; }
+.cal-days button.day .dline .d { margin-top: 0; }
+.cal-days button.day .aimk { font-size: .55rem; font-weight: 800; line-height: 1.25; padding: 0 2px; border: 1px solid var(--k); border-radius: 4px; color: var(--ink); white-space: nowrap; }
 .cal-days .day.blank { min-height: 58px; }
 .cal-days button.day {
   appearance: none; font: inherit; color: var(--ink); border: 1px solid var(--line); background: var(--surface);
@@ -221,7 +227,6 @@ th { color: var(--muted); font-size: .78rem; font-weight: 700; }
 .cal-days button.day .tl { font-size: .65rem; font-weight: 700; border-radius: 4px; padding: 0 3px; color: var(--chip-ink); line-height: 1.5; }
 .cal-days button.day .mark { position: absolute; top: 3px; right: 3px; display: flex; gap: 2px; }
 .cal-days button.day .mark i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
-.cal-days button.day .tg { font-size: .6rem; color: var(--muted); line-height: 1.2; }
 .cal-days button.day.today { outline: 2px solid var(--accent); outline-offset: -2px; }
 .cal-more { text-align: center; min-height: 1px; }
 .today-btn { position: fixed; right: 84px; bottom: calc(72px + env(safe-area-inset-bottom, 0px)); z-index: 8; border-radius: 99px; box-shadow: 0 2px 8px rgba(0,0,0,.25); min-height: 40px; padding: 6px 18px; }
@@ -325,14 +330,12 @@ details.manual[open] > summary { margin-bottom: 8px; }
 
 /* カレンダーの週の帯(イベント・GSD/NMD)。日の列にそろえ、重なる帯は下の段に積む */
 .wk-bars { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-flow: row dense; gap: 2px 3px; margin: 2px 0; }
-.wk-bars .wk-tag { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-size: .66rem; line-height: 1.5; }
 .wk-bars .bar {
   appearance: none; font: inherit; font-size: .66rem; font-weight: 700; line-height: 1.5; text-align: left;
   min-width: 0; padding: 0 5px; border-radius: 4px; cursor: pointer; touch-action: manipulation;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .plan-note { overflow-wrap: anywhere; }
-.wk-bars .wk-tag { border: 0; text-decoration: underline; text-underline-offset: 2px; } /* 下線は押せる印(幅を増やさない) */
 .wk-bars .ev-bar { border: 0; background: #e6dcff; color: #3f2a86; }
 .wk-bars .ev-bar.free { background: #ffe1d6; color: #8a2f12; }
 .wk-bars .moon-bar { border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-align: center; padding: 0 2px; }

@@ -977,37 +977,37 @@ function viewCalendar(root, id, q) {
   if (restoring && calState.from && calState.from < firstMonth) firstMonth = calState.from; // 前に「さらに前」で広げた分を保つ
   if (from < firstMonth) from = firstMonth;
 
-  // 狙う週の札の文字。フィールドが決まっていれば絵文字だけ前に付ける(幅を増やさないため名前は出さない)
+  // 週の列(月曜の左):週の計画のフィールドの絵文字だけを出し、押すと週の計画が開く。
+  // その週の7日の狙いがすべて同じタイプなら、列をそのタイプの色で塗る(1日でも違う日・狙いのない日があれば塗らない)
   const planField = ws => { const p = Store.weekPlan(ws); return p ? fieldOf(p.field) : null; };
-  const tagText = (ws, k) => { const f = planField(ws); return `${f ? f.emoji : ''}${TYPE_LABEL[k]}を狙う週`; };
-  const tagLabel = (ws, k) => { const f = planField(ws); return `${Calc.fmtMd(ws)}週 ${TYPE_LABEL[k]}を狙う週${f ? ` ${f.name}` : ''}。週の計画を開く`; };
+  // 日ごとの狙い:その日の日ごとの設定(dayTargets)を優先し、なければ週の設定(weekTargets)。「指定なし(none)」や未設定は狙いなし(null)
+  const aimOf = day => { const t = Store.targetOf(day); return t && KINDS.includes(t.target) ? t.target : null; };
+  const weekAim = ws => { const a = aimOf(ws); return a && [1, 2, 3, 4, 5, 6].every(i => aimOf(addDays(ws, i)) === a) ? a : null; };
+  const AIM_CHAR = { uto: 'う', suya: 'す', gus: 'ぐ' };
+  const sideLabel = ws => { const f = planField(ws), a = weekAim(ws); return `${Calc.fmtMd(ws)}週${f ? ` ${f.name}` : ''}${a ? ` ${TYPE_LABEL[a]}を狙う週` : ''}。週の計画を開く`; };
 
   function monthHtml(ym) {
     const [y, m] = ym.split('-').map(Number);
     const first = ym + '-01';
     let html = `<section class="cal-month" data-ym="${ym}">
       <div class="cal-head"><h2>${y}年${m}月</h2>
-        <div class="cal-wd">${['月', '火', '水', '木', '金', '土', '日'].map((w, i) => `<span class="${i === 5 ? 'sat' : i === 6 ? 'sun' : ''}">${w}</span>`).join('')}</div></div>`;
+        <div class="cal-wd"><span></span>${['月', '火', '水', '木', '金', '土', '日'].map((w, i) => `<span class="${i === 5 ? 'sat' : i === 6 ? 'sun' : ''}">${w}</span>`).join('')}</div></div>`;
     for (let ws = mondayOf(first); ymOf(ws) <= ym; ws = addDays(ws, 7)) {
-      // 週の行。狙う週なら色と文字の印を付ける
-      const wt = d.weekTargets.find(t => t.weekStart === ws && KINDS.includes(t.target));
-      const wpast = addDays(ws, 6) < today; // 終わった週(日曜が今日より前)の狙いは薄く出す
       let cells = '';
       for (let i = 0; i < 7; i++) {
         const day = addDays(ws, i);
         if (ymOf(day) !== ym) { cells += '<span class="day blank"></span>'; continue; }
         const rs = byDate[day] || [];
-        const dt = d.dayTargets.find(t => t.date === day);
+        const aim = aimOf(day);
         const evs = evByDate[day] || [];
         const mn = Moon.markOf(day);
-        cells += `<button type="button" class="day ${day === today ? 'today' : ''} ${evs.length ? 'ev' : ''}" data-d="${day}"
-          aria-label="${fmtDateLong(day)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}${dt ? ' 狙い' + TARGET_LABEL[dt.target] : ''}${evs.length ? ' イベント ' + esc(evs.map(e => Events.displayTitle(e.title)).join('、')) : ''}${mn ? ` ${mn.mark}(${MOON_NAME[mn.phase]}${mn.exact ? 'の日' : 'の前後'})` : ''}">
+        cells += `<button type="button" class="day ${day === today ? 'today' : ''} ${evs.length ? 'ev' : ''} ${aim ? 'aim k-' + aim : ''}" data-d="${day}"
+          aria-label="${fmtDateLong(day)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}${aim ? ' 狙い' + TARGET_LABEL[aim] : ''}${evs.length ? ' イベント ' + esc(evs.map(e => Events.displayTitle(e.title)).join('、')) : ''}${mn ? ` ${mn.mark}(${MOON_NAME[mn.phase]}${mn.exact ? 'の日' : 'の前後'})` : ''}">
           ${mn ? `<span class="moon ${mn.phase} ${mn.exact ? 'exact' : ''}" aria-hidden="true">${MOON_ICON[mn.phase]}</span>` : ''}
           ${rs.length ? `<span class="mark" aria-hidden="true">${rs.map(() => '<i></i>').join('')}</span>` : ''}
-          <span class="d">${Number(day.slice(8))}</span>
+          <span class="dline"><span class="d">${Number(day.slice(8))}</span>${aim ? `<span class="aimk" aria-hidden="true">${AIM_CHAR[aim]}狙</span>` : ''}</span>
           ${rs.some(r => r.excluded) ? '<span class="exm">集計外</span>' : ''}
           ${rs.map(r => `<span class="tl ${r.type ? 't-' + r.type : 't-empty'}">${SHORT[r.type]}</span>`).join('')}
-          ${dt ? `<span class="tg ${day < today ? 'past' : ''}">狙${dt.target === 'none' ? 'なし' : SHORT[dt.target]}</span>` : ''}
         </button>`;
       }
       // この週(この月の分)に開催中のイベント名を短くして並べる
@@ -1024,7 +1024,6 @@ function viewCalendar(root, id, q) {
       const col = day => daysBetween(ws, day) + 1;
       const clip = (a, b) => [a < wfrom ? wfrom : a, b > wto ? wto : b];
       const bars = [];
-      if (wt) bars.push(`<button type="button" class="bar wk-tag t-${wt.target} ${wpast ? 'past' : ''}" data-ws="${ws}" data-target="${wt.target}" data-s="1" data-e="1" aria-label="${esc(tagLabel(ws, wt.target))}">${esc(tagText(ws, wt.target))}</button>`);
       for (const e of wevs) {
         const [a, b] = clip(e.from, e.to);
         const yami = Events.isYami(e), md = Events.isMoonDay(e);
@@ -1040,9 +1039,12 @@ function viewCalendar(root, id, q) {
         bars.push(`<button type="button" class="bar moon-bar ${sp.phase}" data-s="${col(a)}" data-e="${col(b)}" data-fixed="1" data-short="${sp.mark}"
           data-full="${sp.mark}(${MOON_NAME[sp.phase]}の前後)" data-period="${esc(`${Calc.fmtMd(sp.from)}〜${Calc.fmtMd(sp.to)}(${MOON_NAME[sp.phase]} ${fmtDate(sp.center)} ${sp.time})`)}">${MOON_ICON[sp.phase]}${sp.mark}</button>`);
       }
-      html += `<div class="cal-week ${wt ? 'aim k-' + wt.target + (wpast ? ' past' : '') : ''}">
-        ${bars.length ? `<div class="wk-bars">${bars.join('')}</div>` : ''}
-        <div class="cal-days">${cells}</div></div>`;
+      // 左端が週の列、その右に7日のマス、マスの下に帯(GSD・NMD の段、その下にイベント)
+      const wa = weekAim(ws), pf = planField(ws);
+      html += `<div class="cal-week">
+        <button type="button" class="wk-side ${wa ? 'k-' + wa : ''}" data-ws="${ws}" aria-label="${esc(sideLabel(ws))}">${pf ? pf.emoji : ''}</button>
+        <div class="cal-days">${cells}</div>
+        ${bars.length ? `<div class="wk-bars">${bars.join('')}</div>` : ''}</div>`;
     }
     return html + '</section>';
   }
@@ -1069,10 +1071,22 @@ function viewCalendar(root, id, q) {
       box.classList.add('laid');
       const colW = (box.clientWidth - GAP * 6) / 7;
       const colsFor = px => { let n = 1; while (n < 7 && n * colW + (n - 1) * GAP < px) n++; return n; };
-      const rows = []; // rows[r][c] = 使用中
+      const rows = []; // rows[r][c] = 使用中(イベントの帯。月相の段の下に置くので、段の番号は月相の段数ぶんずらして使う)
       const free = (r, a, b) => { for (let c = a; c <= b; c++) if (rows[r] && rows[r][c]) return false; return true; };
       const take = (r, a, b) => { rows[r] = rows[r] || []; for (let c = a; c <= b; c++) rows[r][c] = true; };
       const items = [...box.children];
+      // NMD・GSD(公式の回数つきの帯と ●NMD/🌕GSD の札)は、日付のすぐ下の段に、その日の列だけに置く。その下にイベントの帯。
+      // 幅に収まらなければ「NMD」「GSD」とだけ書く
+      const mrows = [];
+      for (const el of items.filter(x => x.dataset.fixed)) {
+        const s = Number(el.dataset.s), e = Number(el.dataset.e);
+        const mfree = r => { for (let c = s; c <= e; c++) if (mrows[r] && mrows[r][c]) return false; return true; };
+        let r = 0; while (!mfree(r)) r++;
+        mrows[r] = mrows[r] || []; for (let c = s; c <= e; c++) mrows[r][c] = true;
+        el.style.gridRow = String(r + 1); el.style.gridColumn = `${s} / ${e + 1}`;
+        if (el.scrollWidth > el.clientWidth + 1 && el.dataset.short) { el.textContent = el.dataset.short; el.classList.add('short'); }
+      }
+      const base = mrows.length;
       for (const el of items.filter(x => !x.dataset.fixed)) {
         el.style.gridColumn = '1 / 2';
         const need = colsFor(el.scrollWidth + 1); // 文字に必要な列数
@@ -1101,17 +1115,8 @@ function viewCalendar(root, id, q) {
         // 1列ぶんの幅にしかならないイベントの帯(日曜だけに切れた断片など)は描かない。日の詳細・ホーム・狙い設定には出る
         if (spot[1] === spot[2] && el.classList.contains('ev-bar') && !el.classList.contains('moon-ev')) { el.remove(); continue; }
         take(...spot);
-        el.style.gridRow = String(spot[0] + 1);
+        el.style.gridRow = String(base + spot[0] + 1);
         el.style.gridColumn = `${spot[1]} / ${spot[2] + 1}`;
-      }
-      // NMD・GSD(公式の回数つきの帯と ●NMD/🌕GSD の札)は、狙う週の札・イベントの帯より下の段に、その日の列だけに置く。
-      // 幅に収まらなければ「NMD」「GSD」とだけ書く
-      const base = rows.length;
-      for (const el of items.filter(x => x.dataset.fixed)) {
-        const s = Number(el.dataset.s), e = Number(el.dataset.e);
-        let r = base; while (!free(r, s, e)) r++;
-        take(r, s, e); el.style.gridRow = String(r + 1); el.style.gridColumn = `${s} / ${e + 1}`;
-        if (el.scrollWidth > el.clientWidth + 1 && el.dataset.short) { el.textContent = el.dataset.short; el.classList.add('short'); }
       }
       if (!box.children.length) box.remove(); // 帯が全部なくなった週は、空の段を残さない
     }
@@ -1184,18 +1189,17 @@ function viewCalendar(root, id, q) {
     body.innerHTML = calDetailHtml(day, rs);
     for (const el of $$('details.rec-about', body)) el.open = opened.includes(el.dataset.rec);
   });
-  // 週の計画を閉じたら札の絵文字を付け直す(月をまたぐ週は札が2つある)
+  // 週の計画を閉じたら週の列の絵文字を付け直す(月をまたぐ週は列が2つある)
   const refreshTags = ws => {
-    for (const el of $$(`button.wk-tag[data-ws="${ws}"]`, list)) {
-      el.textContent = tagText(ws, el.dataset.target);
-      el.setAttribute('aria-label', tagLabel(ws, el.dataset.target));
-      el.parentElement.classList.remove('laid');
+    const f = planField(ws);
+    for (const el of $$(`button.wk-side[data-ws="${ws}"]`, list)) {
+      el.textContent = f ? f.emoji : '';
+      el.setAttribute('aria-label', sideLabel(ws));
     }
-    layoutBars(list);
   };
   list.addEventListener('click', e => {
-    const tag = e.target.closest('button.wk-tag');
-    if (tag) { openWeekPlan(tag.dataset.ws, refreshTags); return; }
+    const side = e.target.closest('button.wk-side');
+    if (side) { openWeekPlan(side.dataset.ws, refreshTags); return; }
     const bar = e.target.closest('button.bar');
     if (bar) { ask(`${bar.dataset.full}\n${bar.dataset.period}`, { ok: '閉じる', cancel: null }); return; }
     const b = e.target.closest('button.day'); if (b) openDay(b.dataset.d);
