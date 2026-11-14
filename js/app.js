@@ -1227,9 +1227,11 @@ function calDetailHtml(d, rs) {
   const tg = Store.targetOf(d);
   const a30n = Calc.averageAt(d, 'count');
   // 比較の1行:ラベル・帯・割合。列の見出しは比較ブロックに1回だけ
-  const cmpRow = (label, pcts, fmt = fmtPct) => `<div class="stack avg3-row"><b class="small">${label}</b>
+  const cmpRow = (label, pcts, fmt = fmtPct, range = '') => `<div class="stack avg3-row"><div class="row avg3-head"><b class="small">${label}</b>${range}</div>
     <div class="avgbar" aria-hidden="true">${KINDS.map(k => `<span class="t-${k}" style="width:${pcts(k)}%"></span>`).join('')}</div>
     <div class="avg3 num small">${KINDS.map(k => `<span>${fmt(pcts(k))}%</span>`).join('')}</div></div>`;
+  // 平均に使った記録(est.priorRecs)の最も古い日〜最も新しい日。記録がなければ出さない
+  const priorRange = est => { const p = est.priorRecs; return p && p.length ? `<span class="avg-range muted">${Calc.fmtMd(p[0].date)}〜${Calc.fmtMd(p[p.length - 1].date)}</span>` : ''; };
   // est.prior に使った記録(この夜は含まない)の30回目(一番古い記録)。30件に満たなければ出さない
   const oldestNote = est => {
     if (est.priorRecs.length < RANGE_N) return '';
@@ -1247,7 +1249,7 @@ function calDetailHtml(d, rs) {
       <div class="stack cmp">
         <div class="avg3 avg3-legend small">${KINDS.map(k => `<span class="pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span>`).join('')}</div>
         ${cmpRow('この夜', k => r[PCT_KEY[k]], String)}
-        ${est ? `${cmpRow(full ? avgName : `${avgName}(${RANGE_N}回未満)`, k => est.prior[k].mean)}
+        ${est ? `${cmpRow(full ? avgName : `${avgName}(${RANGE_N}回未満)`, k => est.prior[k].mean, fmtPct, priorRange(est))}
         <div class="stack avg3-row"><b class="small">${full ? 'ゲーム内平均' : '平均'}との差</b>
           <div class="avg3 num small">${KINDS.map(k => `<span>${est.diffs[k] >= 0 ? '+' : ''}${est.diffs[k].toFixed(1)}</span>`).join('')}</div></div>` : ''}
       </div>

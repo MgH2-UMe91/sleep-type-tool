@@ -141,6 +141,7 @@ input.bad, select.bad { border-color: var(--err); background: var(--err-soft); }
 .avg3-legend { color: var(--muted); }
 .avg3-row { gap: 4px; }
 .avg3-head { gap: 4px 8px; }
+.avg-range { font-size: .72rem; }
 /* 統計の折りたたみリスト(怪しい記録・集計外の記録) */
 details.fold > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; min-height: 32px; }
 details.fold > summary::-webkit-details-marker { display: none; }
