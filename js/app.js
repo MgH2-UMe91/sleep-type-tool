@@ -941,6 +941,137 @@ function openWeekPlan(ws, onClose) {
   dlg.scrollTop = 0;
 }
 
+// ---------- ＋ボタンと「狙う期間」シート ----------
+const AIM_MARK = { uto: 'う狙', suya: 'す狙', gus: 'ぐ狙' };
+const AIM_TYPES = ['uto', 'suya', 'gus', 'none'];
+const AIM_TYPE_NAME = { uto: 'うとうと', suya: 'すやすや', gus: 'ぐっすり', none: '狙わない' };
+const AIM_MAX_DAYS = 366;
+let calCursor = null; // カレンダーで最後に押した日(まだなら今日)
+const aimOfDay = day => { const t = Store.targetOf(day); return t && KINDS.includes(t.target) ? t.target : null; };
+const aimTypeButtons = sel => AIM_TYPES.map(t => `<button type="button" class="aim-t t-${t}" data-aim="${t}" aria-pressed="${sel === t}">${AIM_TYPE_NAME[t]}</button>`).join('');
+const rangeLabel = (a, b) => `${fmtDate(a)}〜${fmtDate(b)}`;
+
+// 日付を選ぶ(はじめ → おわり)。選び終えたら onPick(from, to)
+function openAimPicker(from, to, onPick) {
+  const today = todayYmd();
+  let a = from, b = to, stage = 'from', ym = a.slice(0, 7);
+  const dlg = document.createElement('dialog');
+  dlg.className = 'sheet'; dlg.id = 'aimPicker';
+  const draw = () => {
+    const [y, m] = ym.split('-').map(Number), first = ym + '-01';
+    let cells = '';
+    for (let ws = mondayOf(first); ymOf(ws) <= ym; ws = addDays(ws, 7)) {
+      for (let i = 0; i < 7; i++) {
+        const day = addDays(ws, i);
+        if (ymOf(day) !== ym) { cells += '<span></span>'; continue; }
+        const ends = day === a || day === b, inR = day > a && day < b, k = aimOfDay(day);
+        cells += `<button type="button" class="pk-day ${ends ? 'end' : ''} ${inR ? 'mid' : ''} ${day === today ? 'today' : ''}" data-d="${day}" aria-label="${fmtDateLong(day)}${k ? ' 狙い' + AIM_TYPE_NAME[k] : ''}"><span class="n">${Number(day.slice(8))}</span><span class="mk">${k ? AIM_MARK[k] : ''}</span></button>`;
+      }
+    }
+    dlg.innerHTML = `<h2>日付を選ぶ</h2>
+      <p class="small muted">はじめ → おわりの順に押します</p>
+      <div class="pk-ends"><div class="pk-box ${stage === 'from' ? 'on' : ''}"><span class="small muted">はじめ</span><b>${fmtDate(a)}</b></div><span class="muted">〜</span><div class="pk-box ${stage === 'to' ? 'on' : ''}"><span class="small muted">おわり</span><b>${fmtDate(b)}</b></div></div>
+      <div class="pk-nav"><button type="button" class="pk-mv" data-mv="-1" aria-label="前の月">‹</button><b>${y}年${m}月</b><button type="button" class="pk-mv" data-mv="1" aria-label="次の月">›</button></div>
+      <div class="pk-grid"><span class="small muted">月</span><span class="small muted">火</span><span class="small muted">水</span><span class="small muted">木</span><span class="small muted">金</span><span class="small muted">土</span><span class="small muted">日</span>${cells}</div>
+      <p class="small muted">印(う狙・す狙・ぐ狙)のある日は、もう狙いが入っています。選ぶと上書きします。下線は今日(${Calc.fmtMd(today)})。</p>
+      <div class="sheet-foot"><button type="button" class="btn ghost" data-pk="back">戻る</button><button type="button" class="btn" data-pk="ok">この日付にする</button></div>`;
+  };
+  dlg.addEventListener('click', e => {
+    if (e.target === dlg) { dlg.close(); return; }
+    const mv = e.target.closest('[data-mv]'), pk = e.target.closest('[data-pk]'), dayEl = e.target.closest('.pk-day');
+    if (mv) { ym = addMonths(ym, Number(mv.dataset.mv)); draw(); }
+    else if (dayEl) {
+      const day = dayEl.dataset.d;
+      if (stage === 'from' || day < a) { a = day; b = day; stage = 'to'; } else { b = day; stage = 'from'; }
+      draw();
+    } else if (pk) { if (pk.dataset.pk === 'ok') onPick(a, b); dlg.close(); }
+  });
+  dlg.addEventListener('close', () => dlg.remove());
+  draw();
+  document.body.append(dlg);
+  showDialog(dlg, $('h2', dlg));
+}
+
+// 狙う期間のシート(週 / 日付)。cursor = カレンダーで選んでいる日。保存したら onSaved()
+function openAimSheet(cursor, onSaved) {
+  const ws0 = mondayOf(cursor);
+  const st = { tab: 'week', from: ws0, to: addDays(ws0, 6) };
+  const wk = Store.get().weekTargets.find(t => t.weekStart === ws0);
+  st.wsel = wk ? wk.target : (Store.targetOf(ws0) || {}).target || '';
+  const dt = Store.targetOf(cursor);
+  st.dsel = dt ? dt.target : '';
+  const dlg = document.createElement('dialog');
+  dlg.className = 'sheet'; dlg.id = 'aimSheet';
+  const draw = () => {
+    const week = st.tab === 'week';
+    let body;
+    if (week) {
+      const ws = mondayOf(st.from);
+      const strip = [0, 1, 2, 3, 4, 5, 6].map(i => { const day = addDays(ws, i); return `<span class="aw-d ${day >= st.from && day <= st.to ? 'in' : ''} ${day === cursor ? 'cur' : ''}"><span class="small">${WD[parseYmd(day).getDay()]}</span><b>${Number(day.slice(8))}</b></span>`; }).join('');
+      body = `<span class="small muted">期間</span>
+        <div class="aim-range"><b>${rangeLabel(st.from, st.to)}</b><button type="button" class="aim-cal" data-cal aria-label="日付を選ぶ">📅</button></div>
+        <div class="aim-week">${strip}</div>
+        <span class="small muted">狙う睡眠タイプ</span>
+        <div class="aim-types">${aimTypeButtons(st.wsel)}</div>
+        <div class="sheet-foot"><button type="button" class="btn ghost" data-act="cancel">やめる</button><button type="button" class="btn" data-act="save">保存する</button></div>`;
+    } else {
+      body = `<span class="small muted">日付</span>
+        <b class="aim-day">${fmtDate(cursor)}</b>
+        <span class="small muted">この日に狙う睡眠タイプ</span>
+        <div class="aim-types">${aimTypeButtons(st.dsel)}</div>
+        <div class="sheet-foot"><button type="button" class="btn ghost" data-act="reset">週の狙いに戻す</button><button type="button" class="btn" data-act="save">保存する</button></div>`;
+    }
+    dlg.innerHTML = `<h2>狙う期間</h2>
+      <div class="seg"><button type="button" data-tab="week" aria-pressed="${week}">週</button><button type="button" data-tab="day" aria-pressed="${!week}">日付</button></div>${body}`;
+  };
+  const done = msg => { dlg.close(); if (msg) toast(msg); onSaved(); };
+  dlg.addEventListener('click', e => {
+    if (e.target === dlg) { dlg.close(); return; }
+    const tab = e.target.closest('[data-tab]'), aim = e.target.closest('[data-aim]'), act = e.target.closest('[data-act]');
+    if (tab) { st.tab = tab.dataset.tab; draw(); }
+    else if (aim) { st[st.tab === 'week' ? 'wsel' : 'dsel'] = aim.dataset.aim; draw(); }
+    else if (e.target.closest('[data-cal]')) openAimPicker(st.from, st.to, (a, b) => { st.from = a; st.to = b; draw(); });
+    else if (act) {
+      const k = act.dataset.act;
+      if (k === 'cancel') { dlg.close(); return; }
+      try {
+        if (k === 'reset') { Store.setDayTarget(cursor, null); done('週の狙いに戻しました'); return; }
+        const sel = st.tab === 'week' ? st.wsel : st.dsel;
+        if (!sel) { toast('狙う睡眠タイプを選んでください'); return; }
+        if (st.tab === 'day') { Store.setDayTarget(cursor, sel); done('保存しました'); return; }
+        const n = daysBetween(st.from, st.to) + 1;
+        if (n > AIM_MAX_DAYS) { toast('期間は1年以内にしてください'); return; }
+        if (st.from === mondayOf(st.from) && n === 7) {
+          Store.setWeekTarget(st.from, sel);
+          for (let i = 0; i < 7; i++) if (Store.get().dayTargets.some(t => t.date === addDays(st.from, i))) Store.setDayTarget(addDays(st.from, i), null);
+        } else for (let i = 0; i < n; i++) Store.setDayTarget(addDays(st.from, i), sel);
+        done('保存しました');
+      } catch (err) { toast('保存できませんでした'); }
+    }
+  });
+  dlg.addEventListener('close', () => dlg.remove());
+  draw();
+  document.body.append(dlg);
+  showDialog(dlg, $('h2', dlg));
+}
+
+// ＋ボタンの選択肢
+function openAddChoice(cursor, onSaved) {
+  const dlg = document.createElement('dialog');
+  dlg.className = 'sheet'; dlg.id = 'addChoice';
+  dlg.innerHTML = `<h2>追加</h2><button type="button" class="btn block" data-add="aim">狙う期間</button><a class="btn ghost block" href="#input" data-add="rec">睡眠の記録</a>
+    <button type="button" class="btn ghost block" data-add="x">やめる</button>`;
+  dlg.addEventListener('click', e => {
+    if (e.target === dlg) { dlg.close(); return; }
+    const b = e.target.closest('[data-add]'); if (!b) return;
+    dlg.close();
+    if (b.dataset.add === 'aim') openAimSheet(cursor, onSaved);
+  });
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  showDialog(dlg, $('h2', dlg));
+}
+
 function viewCalendar(root, id, q) {
   const today = todayYmd(), thisMonth = ymOf(today);
   const recs = Store.records(), d = Store.get();
@@ -1002,7 +1133,7 @@ function viewCalendar(root, id, q) {
         const aim = aimOf(day);
         const evs = evByDate[day] || [];
         const mn = Moon.markOf(day);
-        cells += `<button type="button" class="day ${day === today ? 'today' : ''} ${aim ? 'aim k-' + aim : ''}" data-d="${day}"
+        cells += `<button type="button" class="day ${day === today ? 'today' : ''} ${day === (calCursor || today) ? 'cursor' : ''} ${aim ? 'aim k-' + aim : ''}" data-d="${day}"
           aria-label="${fmtDateLong(day)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}${aim ? ' 狙い' + TARGET_LABEL[aim] : ''}${evs.length ? ' イベント ' + esc(evs.map(e => Events.displayTitle(e.title)).join('、')) : ''}${mn ? ` ${mn.mark}(${MOON_NAME[mn.phase]}${mn.exact ? 'の日' : 'の前後'})` : ''}">
           ${mn ? `<span class="moon ${mn.phase} ${mn.exact ? 'exact' : ''}" aria-hidden="true">${MOON_ICON[mn.phase]}</span>` : ''}
           <span class="dline"><span class="d">${Number(day.slice(8))}</span>${aim ? `<span class="aimk" aria-hidden="true">${AIM_CHAR[aim]}狙</span>` : ''}</span>
@@ -1197,12 +1328,36 @@ function viewCalendar(root, id, q) {
       el.setAttribute('aria-label', sideLabel(ws));
     }
   };
+  // 狙いを保存したあと、マスの色・印と週の列を付け直す
+  const refreshAims = () => {
+    for (const cell of $$('button.day', list)) {
+      const day = cell.dataset.d, aim = aimOf(day);
+      cell.classList.remove('aim', 'k-uto', 'k-suya', 'k-gus');
+      if (aim) cell.classList.add('aim', 'k-' + aim);
+      const dl = $('.dline', cell), mk = $('.aimk', cell);
+      if (mk) mk.remove();
+      if (aim) dl.insertAdjacentHTML('beforeend', `<span class="aimk" aria-hidden="true">${AIM_CHAR[aim]}狙</span>`);
+    }
+    for (const el of $$('button.wk-side', list)) {
+      const ws = el.dataset.ws, wa = weekAim(ws);
+      el.classList.remove('k-uto', 'k-suya', 'k-gus');
+      if (wa) el.classList.add('k-' + wa);
+      el.setAttribute('aria-label', sideLabel(ws));
+    }
+  };
+  const setCursor = day => {
+    calCursor = day;
+    for (const c of $$('button.day.cursor', list)) c.classList.remove('cursor');
+    const el = $(`button.day[data-d="${day}"]`, list); if (el) el.classList.add('cursor');
+  };
+  const onFab = e => { e.preventDefault(); openAddChoice(calCursor || today, refreshAims); };
+  $('#fab').addEventListener('click', onFab);
   list.addEventListener('click', e => {
     const side = e.target.closest('button.wk-side');
     if (side) { openWeekPlan(side.dataset.ws, refreshTags); return; }
     const bar = e.target.closest('button.bar');
     if (bar) { ask(`${bar.dataset.full}\n${bar.dataset.period}`, { ok: '閉じる', cancel: null }); return; }
-    const b = e.target.closest('button.day'); if (b) openDay(b.dataset.d);
+    const b = e.target.closest('button.day'); if (b) { setCursor(b.dataset.d); openDay(b.dataset.d); }
   });
   $('#toToday', root).onclick = () => scrollToDay(today, 'smooth');
 
@@ -1217,6 +1372,7 @@ function viewCalendar(root, id, q) {
   return () => {
     calState.y = window.scrollY; calState.from = from;
     window.removeEventListener('scroll', onScroll);
+    $('#fab').removeEventListener('click', onFab);
     if (sheet.open) sheet.close();
   };
 }
