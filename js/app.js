@@ -980,7 +980,7 @@ function openAimSheet(cursor, onSaved) {
         <div class="sheet-foot"><button type="button" class="btn ghost" data-act="cancel">やめる</button><button type="button" class="btn" data-act="save">保存する</button></div>`;
     } else {
       const ws = mondayOf(cursor), CH = { uto: 'う', suya: 'す', gus: 'ぐ' };
-      const strip = [0, 1, 2, 3, 4, 5, 6].map(i => { const day = addDays(ws, i), v = dayVal(day); return `<button type="button" class="aw-d ${day === st.cur ? 'cur' : ''}" data-pick="${day}" aria-label="${fmtDate(day)}" aria-pressed="${day === st.cur}"><span class="small">${WD[parseYmd(day).getDay()]}</span><b>${Number(day.slice(8))}</b><span class="aw-k">${CH[v] || '―'}</span></button>`; }).join('');
+      const strip = [0, 1, 2, 3, 4, 5, 6].map(i => { const day = addDays(ws, i), v = dayVal(day); return `<button type="button" class="aw-d ${day === st.cur ? 'cur' : ''}" data-pick="${day}" aria-label="${fmtDate(day)}" aria-pressed="${day === st.cur}"><span class="small">${WD[parseYmd(day).getDay()]}</span><b>${Number(day.slice(8))}</b><span class="aw-k ${CH[v] ? 't-' + v : ''}">${CH[v] || '―'}</span></button>`; }).join('');
       body = `<span class="small muted">日付</span>
         <b class="aim-day">${fmtDate(st.cur)}</b>
         <div class="aim-week">${strip}</div>
