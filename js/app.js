@@ -998,8 +998,15 @@ function openAimSheet(cursor, onSaved) {
   const st = { tab: 'week', from: ws0, to: addDays(ws0, 6) };
   const wk = Store.get().weekTargets.find(t => t.weekStart === ws0);
   st.wsel = wk ? wk.target : (Store.targetOf(ws0) || {}).target || '';
-  const dt = Store.targetOf(cursor);
-  st.dsel = dt ? dt.target : '';
+  st.cur = cursor;   // 日付タブで直している日
+  st.pend = {};      // 日ごとの未保存の変更: 日付 → 'uto' など / 'reset'(週の狙いに戻す)
+  // その日の今の狙い(未保存の変更を含む)。'' = 未設定
+  const dayVal = day => {
+    const p = st.pend[day];
+    if (p && p !== 'reset') return p;
+    if (p === 'reset') { const w = Store.get().weekTargets.find(t => t.weekStart === mondayOf(day)); return w ? w.target : ''; }
+    const t = Store.targetOf(day); return t ? t.target : '';
+  };
   const dlg = document.createElement('dialog');
   dlg.className = 'sheet'; dlg.id = 'aimSheet';
   const draw = () => {
@@ -1015,10 +1022,13 @@ function openAimSheet(cursor, onSaved) {
         <div class="aim-types">${aimTypeButtons(st.wsel)}</div>
         <div class="sheet-foot"><button type="button" class="btn ghost" data-act="cancel">やめる</button><button type="button" class="btn" data-act="save">保存する</button></div>`;
     } else {
+      const ws = mondayOf(cursor), CH = { uto: 'う', suya: 'す', gus: 'ぐ' };
+      const strip = [0, 1, 2, 3, 4, 5, 6].map(i => { const day = addDays(ws, i), v = dayVal(day); return `<button type="button" class="aw-d ${day === st.cur ? 'cur' : ''}" data-pick="${day}" aria-label="${fmtDate(day)}" aria-pressed="${day === st.cur}"><span class="small">${WD[parseYmd(day).getDay()]}</span><b>${Number(day.slice(8))}</b><span class="aw-k">${CH[v] || '―'}</span></button>`; }).join('');
       body = `<span class="small muted">日付</span>
-        <b class="aim-day">${fmtDate(cursor)}</b>
+        <b class="aim-day">${fmtDate(st.cur)}</b>
+        <div class="aim-week">${strip}</div>
         <span class="small muted">この日に狙う睡眠タイプ</span>
-        <div class="aim-types">${aimTypeButtons(st.dsel)}</div>
+        <div class="aim-types">${aimTypeButtons(dayVal(st.cur))}</div>
         <div class="sheet-foot"><button type="button" class="btn ghost" data-act="reset">週の狙いに戻す</button><button type="button" class="btn" data-act="save">保存する</button></div>`;
     }
     dlg.innerHTML = `<h2>狙う期間</h2>
@@ -1027,18 +1037,25 @@ function openAimSheet(cursor, onSaved) {
   const done = msg => { dlg.close(); if (msg) toast(msg); onSaved(); };
   dlg.addEventListener('click', e => {
     if (e.target === dlg) { dlg.close(); return; }
+    const pick = e.target.closest('[data-pick]');
+    if (pick) { st.cur = pick.dataset.pick; draw(); return; }
     const tab = e.target.closest('[data-tab]'), aim = e.target.closest('[data-aim]'), act = e.target.closest('[data-act]');
     if (tab) { st.tab = tab.dataset.tab; draw(); }
-    else if (aim) { st[st.tab === 'week' ? 'wsel' : 'dsel'] = aim.dataset.aim; draw(); }
+    else if (aim) { if (st.tab === 'week') st.wsel = aim.dataset.aim; else st.pend[st.cur] = aim.dataset.aim; draw(); }
     else if (e.target.closest('[data-cal]')) openAimPicker(st.from, st.to, (a, b) => { st.from = a; st.to = b; draw(); });
     else if (act) {
       const k = act.dataset.act;
       if (k === 'cancel') { dlg.close(); return; }
       try {
-        if (k === 'reset') { Store.setDayTarget(cursor, null); done('週の狙いに戻しました'); return; }
-        const sel = st.tab === 'week' ? st.wsel : st.dsel;
+        if (k === 'reset') { st.pend[st.cur] = 'reset'; draw(); return; }   // 今の日だけ。保存でまとめて反映
+        if (st.tab === 'day') {
+          const days = Object.keys(st.pend);
+          if (!days.length) { toast('狙う睡眠タイプを選んでください'); return; }
+          for (const day of days) Store.setDayTarget(day, st.pend[day] === 'reset' ? null : st.pend[day]);
+          done('保存しました'); return;
+        }
+        const sel = st.wsel;
         if (!sel) { toast('狙う睡眠タイプを選んでください'); return; }
-        if (st.tab === 'day') { Store.setDayTarget(cursor, sel); done('保存しました'); return; }
         const n = daysBetween(st.from, st.to) + 1;
         if (n > AIM_MAX_DAYS) { toast('期間は1年以内にしてください'); return; }
         if (st.from === mondayOf(st.from) && n === 7) {

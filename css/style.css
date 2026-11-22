@@ -409,3 +409,6 @@ body.has-fab main { padding-bottom: 88px; }
 .pk-day.end { background: var(--t-suya); color: var(--chip-ink); border-radius: 10px; }
 .pk-day.end .mk { color: var(--chip-ink); }
 .pk-day.today .n { text-decoration: underline; }
+button.aw-d { appearance: none; font: inherit; color: var(--ink); border: 0; cursor: pointer; opacity: 1; touch-action: manipulation; }
+button.aw-d.cur { background: var(--t-uto); color: var(--chip-ink); outline: 0; }
+.aw-k { font-size: .7rem; font-weight: 800; line-height: 1.3; }
