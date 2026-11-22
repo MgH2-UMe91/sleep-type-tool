@@ -1374,7 +1374,7 @@ function viewCalendar(root, id, q) {
     if (side) { openWeekPlan(side.dataset.ws, refreshTags); return; }
     const bar = e.target.closest('button.bar');
     if (bar) { ask(`${bar.dataset.full}\n${bar.dataset.period}`, { ok: '閉じる', cancel: null }); return; }
-    const b = e.target.closest('button.day'); if (b) { setCursor(b.dataset.d); openDay(b.dataset.d); }
+    const b = e.target.closest('button.day'); if (b) { if (b.dataset.d === (calCursor || today)) openDay(b.dataset.d); else setCursor(b.dataset.d); }   // カーソルのある日をもう一度押したときだけ詳細を開く
   });
   $('#toToday', root).onclick = () => scrollToDay(today, 'smooth');
 
@@ -1382,7 +1382,7 @@ function viewCalendar(root, id, q) {
   setTimeout(() => {
     if (restoring) window.scrollTo(0, calState.y);
     else scrollToDay(want || today);
-    if (want) openDay(want);
+    if (want) { setCursor(want); openDay(want); }
     watching = true; onScroll(); // 位置を合わせてから、上端に近づいたら古い月を追加する監視を始める
   }, 0);
 
