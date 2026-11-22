@@ -974,7 +974,7 @@ function openAimSheet(cursor, onSaved) {
       const strip = [0, 1, 2, 3, 4, 5, 6].map(i => { const day = addDays(ws, i); return `<span class="aw-d in ${day === cursor ? 'cur' : ''}"><span class="small">${WD[parseYmd(day).getDay()]}</span><b>${Number(day.slice(8))}</b></span>`; }).join('');
       body = `<span class="small muted">期間</span>
         <div class="aim-range"><button type="button" class="btn ghost aim-mv" data-wk="-1" aria-label="前の週">‹</button><b>${fmtDate(ws)}〜${fmtDate(addDays(ws, 6))}</b><button type="button" class="btn ghost aim-mv" data-wk="1" aria-label="次の週">›</button></div>
-        <div class="aim-week">${strip}</div>
+        <div class="aim-week ${KINDS.includes(st.wsel) ? 'k-' + st.wsel : ''}">${strip}</div>
         <span class="small muted">狙う睡眠タイプ</span>
         <div class="aim-types">${aimTypeButtons(st.wsel)}</div>
         <div class="sheet-foot"><button type="button" class="btn ghost" data-act="cancel">やめる</button><button type="button" class="btn" data-act="save">保存する</button></div>`;
