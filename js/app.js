@@ -948,6 +948,13 @@ let calCursor = null; // カレンダーで最後に押した日(まだなら今
 const aimOfDay = day => { const t = Store.targetOf(day); return t && KINDS.includes(t.target) ? t.target : null; };
 const aimTypeButtons = sel => AIM_TYPES.map(t => `<button type="button" class="aim-t t-${t}" data-aim="${t}" aria-pressed="${sel === t}">${AIM_TYPE_NAME[t]}</button>`).join('');
 
+// 7日の列の1マス(週タブ・日付タブ共通)。v = その日のタイプ('' = 狙わない/未設定は「―」)。pick を渡すと押せるマスになる
+const AIM_CH = { uto: 'う', suya: 'す', gus: 'ぐ' };
+function aimDayCell(day, v, isCur, pick) {
+  const inner = `<span class="small">${WD[parseYmd(day).getDay()]}</span><b>${Number(day.slice(8))}</b><span class="aw-k ${AIM_CH[v] ? 't-' + v : ''}">${AIM_CH[v] || '―'}</span>`;
+  return pick ? `<button type="button" class="aw-d ${isCur ? 'cur' : ''}" data-pick="${day}" aria-label="${fmtDate(day)}" aria-pressed="${isCur}">${inner}</button>`
+    : `<span class="aw-d ${isCur ? 'cur' : ''}">${inner}</span>`;
+}
 // 狙う期間のシート(週 / 日付)。cursor = カレンダーで選んでいる日。保存したら onSaved()
 function openAimSheet(cursor, onSaved) {
   const ws0 = mondayOf(cursor);
@@ -971,16 +978,16 @@ function openAimSheet(cursor, onSaved) {
     let body;
     if (week) {
       const ws = st.ws;
-      const strip = [0, 1, 2, 3, 4, 5, 6].map(i => { const day = addDays(ws, i); return `<span class="aw-d in ${day === cursor ? 'cur' : ''}"><span class="small">${WD[parseYmd(day).getDay()]}</span><b>${Number(day.slice(8))}</b></span>`; }).join('');
+      const strip = [0, 1, 2, 3, 4, 5, 6].map(i => { const day = addDays(ws, i); return aimDayCell(day, st.wsel, day === cursor, false); }).join('');
       body = `<span class="small muted">期間</span>
         <div class="aim-range"><button type="button" class="btn ghost aim-mv" data-wk="-1" aria-label="前の週">‹</button><b>${fmtDate(ws)}〜${fmtDate(addDays(ws, 6))}</b><button type="button" class="btn ghost aim-mv" data-wk="1" aria-label="次の週">›</button></div>
-        <div class="aim-week ${KINDS.includes(st.wsel) ? 'k-' + st.wsel : ''}">${strip}</div>
+        <div class="aim-week">${strip}</div>
         <span class="small muted">狙う睡眠タイプ</span>
         <div class="aim-types">${aimTypeButtons(st.wsel)}</div>
         <div class="sheet-foot"><button type="button" class="btn ghost" data-act="cancel">やめる</button><button type="button" class="btn" data-act="save">保存する</button></div>`;
     } else {
-      const ws = mondayOf(cursor), CH = { uto: 'う', suya: 'す', gus: 'ぐ' };
-      const strip = [0, 1, 2, 3, 4, 5, 6].map(i => { const day = addDays(ws, i), v = dayVal(day); return `<button type="button" class="aw-d ${day === st.cur ? 'cur' : ''}" data-pick="${day}" aria-label="${fmtDate(day)}" aria-pressed="${day === st.cur}"><span class="small">${WD[parseYmd(day).getDay()]}</span><b>${Number(day.slice(8))}</b><span class="aw-k ${CH[v] ? 't-' + v : ''}">${CH[v] || '―'}</span></button>`; }).join('');
+      const ws = mondayOf(cursor);
+      const strip = [0, 1, 2, 3, 4, 5, 6].map(i => { const day = addDays(ws, i); return aimDayCell(day, dayVal(day), day === st.cur, true); }).join('');
       body = `<span class="small muted">日付</span>
         <b class="aim-day">${fmtDate(st.cur)}</b>
         <div class="aim-week">${strip}</div>

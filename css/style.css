@@ -389,8 +389,7 @@ body.has-fab main { padding-bottom: 88px; }
 .aim-mv { flex: none; width: 48px; min-height: 48px; padding: 0; font-size: 1.5rem; line-height: 1; }
 .aim-day { font-size: 1.15rem; }
 .aim-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
-.aw-d { display: flex; flex-direction: column; align-items: center; border-radius: 8px; padding: 4px 0; background: var(--surface-2); opacity: .45; line-height: 1.4; }
-.aw-d.in { opacity: 1; }
+.aw-d { display: flex; flex-direction: column; align-items: center; border-radius: 8px; padding: 4px 0; background: var(--surface-2); line-height: 1.4; }
 .aw-d.cur { outline: 3px solid var(--accent); outline-offset: 1px; opacity: 1; }
 .aim-types { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .aim-t { appearance: none; font: inherit; font-weight: 700; font-size: .85rem; min-height: 44px; padding: 0 2px; border-radius: 99px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; white-space: nowrap; }
@@ -402,6 +401,3 @@ button.aw-d { appearance: none; font: inherit; color: var(--ink); border: 0; cur
 button.aw-d.cur { outline: 3px solid var(--accent); outline-offset: 1px; }
 .aw-k { font-size: .7rem; font-weight: 800; line-height: 1.3; min-width: 1.6em; border-radius: 4px; color: var(--muted); }
 .aw-k.t-uto, .aw-k.t-suya, .aw-k.t-gus { color: var(--chip-ink); }
-.aim-week.k-uto .aw-d { background: color-mix(in srgb, var(--t-uto) 32%, var(--surface-2)); }
-.aim-week.k-suya .aw-d { background: color-mix(in srgb, var(--t-suya) 32%, var(--surface-2)); }
-.aim-week.k-gus .aw-d { background: color-mix(in srgb, var(--t-gus) 32%, var(--surface-2)); }
