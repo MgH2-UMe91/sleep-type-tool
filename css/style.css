@@ -384,10 +384,11 @@ body.has-fab main { padding-bottom: 88px; }
 /* カーソル(カレンダーで最後に押した日)と、狙う期間のシート */
 .cal-days button.day.cursor { outline: 3px solid var(--accent); outline-offset: -3px; background: var(--accent-soft); }
 .cal-days button.day.cursor.aim { background: color-mix(in srgb, var(--k) 16%, var(--accent-soft)); }
-#aimSheet .seg, #aimSheet .aim-types, #aimSheet .aim-week { flex: none; }
+#aimSheet .aim-types, #aimSheet .aim-week, #aimSheet .aim-range { flex: none; }
 .aim-range { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 1.15rem; }
 .aim-mv { flex: none; width: 48px; min-height: 48px; padding: 0; font-size: 1.5rem; line-height: 1; }
-.aim-day { font-size: 1.15rem; }
+.aim-span { appearance: none; flex: 1; min-width: 0; min-height: 48px; font: inherit; font-weight: 700; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; touch-action: manipulation; }
+.aim-span.cur { outline: 3px solid var(--accent); outline-offset: 1px; }
 .aim-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .aw-d { display: flex; flex-direction: column; align-items: center; border-radius: 8px; padding: 4px 0; background: var(--surface-2); line-height: 1.4; }
 .aw-d.cur { outline: 3px solid var(--accent); outline-offset: 1px; opacity: 1; }
