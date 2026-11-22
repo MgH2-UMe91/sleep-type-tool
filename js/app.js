@@ -1329,7 +1329,7 @@ function viewCalendar(root, id, q) {
     if (bar) { ask(`${bar.dataset.full}\n${bar.dataset.period}`, { ok: '閉じる', cancel: null }); return; }
     const b = e.target.closest('button.day'); if (b) { if (b.dataset.d === (calCursor || today)) openDay(b.dataset.d); else setCursor(b.dataset.d); }   // カーソルのある日をもう一度押したときだけ詳細を開く
   });
-  $('#toToday', root).onclick = () => scrollToDay(today, 'smooth');
+  $('#toToday', root).onclick = () => { setCursor(today); scrollToDay(today, 'smooth'); };   // 今日までスクロールし、カーソルも今日へ(シートは開かない)
 
   // 位置合わせは route() のスクロールリセットの後に行う
   setTimeout(() => {
