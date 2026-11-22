@@ -942,62 +942,19 @@ function openWeekPlan(ws, onClose) {
 }
 
 // ---------- ＋ボタンと「狙う期間」シート ----------
-const AIM_MARK = { uto: 'う狙', suya: 'す狙', gus: 'ぐ狙' };
 const AIM_TYPES = ['uto', 'suya', 'gus', 'none'];
 const AIM_TYPE_NAME = { uto: 'うとうと', suya: 'すやすや', gus: 'ぐっすり', none: '狙わない' };
-const AIM_MAX_DAYS = 366;
 let calCursor = null; // カレンダーで最後に押した日(まだなら今日)
 const aimOfDay = day => { const t = Store.targetOf(day); return t && KINDS.includes(t.target) ? t.target : null; };
 const aimTypeButtons = sel => AIM_TYPES.map(t => `<button type="button" class="aim-t t-${t}" data-aim="${t}" aria-pressed="${sel === t}">${AIM_TYPE_NAME[t]}</button>`).join('');
-const rangeLabel = (a, b) => `${fmtDate(a)}〜${fmtDate(b)}`;
-
-// 日付を選ぶ(はじめ → おわり)。選び終えたら onPick(from, to)
-function openAimPicker(from, to, onPick) {
-  const today = todayYmd();
-  let a = from, b = to, stage = 'from', ym = a.slice(0, 7);
-  const dlg = document.createElement('dialog');
-  dlg.className = 'sheet'; dlg.id = 'aimPicker';
-  const draw = () => {
-    const [y, m] = ym.split('-').map(Number), first = ym + '-01';
-    let cells = '';
-    for (let ws = mondayOf(first); ymOf(ws) <= ym; ws = addDays(ws, 7)) {
-      for (let i = 0; i < 7; i++) {
-        const day = addDays(ws, i);
-        if (ymOf(day) !== ym) { cells += '<span></span>'; continue; }
-        const ends = day === a || day === b, inR = day > a && day < b, k = aimOfDay(day);
-        cells += `<button type="button" class="pk-day ${ends ? 'end' : ''} ${inR ? 'mid' : ''} ${day === today ? 'today' : ''}" data-d="${day}" aria-label="${fmtDateLong(day)}${k ? ' 狙い' + AIM_TYPE_NAME[k] : ''}"><span class="n">${Number(day.slice(8))}</span><span class="mk">${k ? AIM_MARK[k] : ''}</span></button>`;
-      }
-    }
-    dlg.innerHTML = `<h2>日付を選ぶ</h2>
-      <p class="small muted">はじめ → おわりの順に押します</p>
-      <div class="pk-ends"><div class="pk-box ${stage === 'from' ? 'on' : ''}"><span class="small muted">はじめ</span><b>${fmtDate(a)}</b></div><span class="muted">〜</span><div class="pk-box ${stage === 'to' ? 'on' : ''}"><span class="small muted">おわり</span><b>${fmtDate(b)}</b></div></div>
-      <div class="pk-nav"><button type="button" class="pk-mv" data-mv="-1" aria-label="前の月">‹</button><b>${y}年${m}月</b><button type="button" class="pk-mv" data-mv="1" aria-label="次の月">›</button></div>
-      <div class="pk-grid"><span class="small muted">月</span><span class="small muted">火</span><span class="small muted">水</span><span class="small muted">木</span><span class="small muted">金</span><span class="small muted">土</span><span class="small muted">日</span>${cells}</div>
-      <p class="small muted">印(う狙・す狙・ぐ狙)のある日は、もう狙いが入っています。選ぶと上書きします。下線は今日(${Calc.fmtMd(today)})。</p>
-      <div class="sheet-foot"><button type="button" class="btn ghost" data-pk="back">戻る</button><button type="button" class="btn" data-pk="ok">この日付にする</button></div>`;
-  };
-  dlg.addEventListener('click', e => {
-    if (e.target === dlg) { dlg.close(); return; }
-    const mv = e.target.closest('[data-mv]'), pk = e.target.closest('[data-pk]'), dayEl = e.target.closest('.pk-day');
-    if (mv) { ym = addMonths(ym, Number(mv.dataset.mv)); draw(); }
-    else if (dayEl) {
-      const day = dayEl.dataset.d;
-      if (stage === 'from' || day < a) { a = day; b = day; stage = 'to'; } else { b = day; stage = 'from'; }
-      draw();
-    } else if (pk) { if (pk.dataset.pk === 'ok') onPick(a, b); dlg.close(); }
-  });
-  dlg.addEventListener('close', () => dlg.remove());
-  draw();
-  document.body.append(dlg);
-  showDialog(dlg, $('h2', dlg));
-}
 
 // 狙う期間のシート(週 / 日付)。cursor = カレンダーで選んでいる日。保存したら onSaved()
 function openAimSheet(cursor, onSaved) {
   const ws0 = mondayOf(cursor);
-  const st = { tab: 'week', from: ws0, to: addDays(ws0, 6) };
-  const wk = Store.get().weekTargets.find(t => t.weekStart === ws0);
-  st.wsel = wk ? wk.target : (Store.targetOf(ws0) || {}).target || '';
+  const st = { tab: 'week', ws: ws0 };
+  // 週の今の狙い(その週の weekTargets。なければ ''。表示する週を変えるたびに合わせ直す)
+  const weekVal = ws => { const w = Store.get().weekTargets.find(t => t.weekStart === ws); return w ? w.target : ''; };
+  st.wsel = weekVal(ws0);
   st.cur = cursor;   // 日付タブで直している日
   st.pend = {};      // 日ごとの未保存の変更: 日付 → 'uto' など / 'reset'(週の狙いに戻す)
   // その日の今の狙い(未保存の変更を含む)。'' = 未設定
@@ -1013,10 +970,10 @@ function openAimSheet(cursor, onSaved) {
     const week = st.tab === 'week';
     let body;
     if (week) {
-      const ws = mondayOf(st.from);
-      const strip = [0, 1, 2, 3, 4, 5, 6].map(i => { const day = addDays(ws, i); return `<span class="aw-d ${day >= st.from && day <= st.to ? 'in' : ''} ${day === cursor ? 'cur' : ''}"><span class="small">${WD[parseYmd(day).getDay()]}</span><b>${Number(day.slice(8))}</b></span>`; }).join('');
+      const ws = st.ws;
+      const strip = [0, 1, 2, 3, 4, 5, 6].map(i => { const day = addDays(ws, i); return `<span class="aw-d in ${day === cursor ? 'cur' : ''}"><span class="small">${WD[parseYmd(day).getDay()]}</span><b>${Number(day.slice(8))}</b></span>`; }).join('');
       body = `<span class="small muted">期間</span>
-        <div class="aim-range"><b>${rangeLabel(st.from, st.to)}</b><button type="button" class="aim-cal" data-cal aria-label="日付を選ぶ">📅</button></div>
+        <div class="aim-range"><button type="button" class="btn ghost aim-mv" data-wk="-1" aria-label="前の週">‹</button><b>${fmtDate(ws)}〜${fmtDate(addDays(ws, 6))}</b><button type="button" class="btn ghost aim-mv" data-wk="1" aria-label="次の週">›</button></div>
         <div class="aim-week">${strip}</div>
         <span class="small muted">狙う睡眠タイプ</span>
         <div class="aim-types">${aimTypeButtons(st.wsel)}</div>
@@ -1042,7 +999,7 @@ function openAimSheet(cursor, onSaved) {
     const tab = e.target.closest('[data-tab]'), aim = e.target.closest('[data-aim]'), act = e.target.closest('[data-act]');
     if (tab) { st.tab = tab.dataset.tab; draw(); }
     else if (aim) { if (st.tab === 'week') st.wsel = aim.dataset.aim; else st.pend[st.cur] = aim.dataset.aim; draw(); }
-    else if (e.target.closest('[data-cal]')) openAimPicker(st.from, st.to, (a, b) => { st.from = a; st.to = b; draw(); });
+    else if (e.target.closest('[data-wk]')) { st.ws = addDays(st.ws, 7 * Number(e.target.closest('[data-wk]').dataset.wk)); st.wsel = weekVal(st.ws); draw(); }
     else if (act) {
       const k = act.dataset.act;
       if (k === 'cancel') { dlg.close(); return; }
@@ -1056,12 +1013,8 @@ function openAimSheet(cursor, onSaved) {
         }
         const sel = st.wsel;
         if (!sel) { toast('狙う睡眠タイプを選んでください'); return; }
-        const n = daysBetween(st.from, st.to) + 1;
-        if (n > AIM_MAX_DAYS) { toast('期間は1年以内にしてください'); return; }
-        if (st.from === mondayOf(st.from) && n === 7) {
-          Store.setWeekTarget(st.from, sel);
-          for (let i = 0; i < 7; i++) if (Store.get().dayTargets.some(t => t.date === addDays(st.from, i))) Store.setDayTarget(addDays(st.from, i), null);
-        } else for (let i = 0; i < n; i++) Store.setDayTarget(addDays(st.from, i), sel);
+        Store.setWeekTarget(st.ws, sel);   // 月〜日の1週。その週の日ごとの狙いは消して、週の狙いで上書きする
+        for (let i = 0; i < 7; i++) if (Store.get().dayTargets.some(t => t.date === addDays(st.ws, i))) Store.setDayTarget(addDays(st.ws, i), null);
         done('保存しました');
       } catch (err) { toast('保存できませんでした'); }
     }
