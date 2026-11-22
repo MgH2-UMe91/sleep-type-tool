@@ -3,6 +3,7 @@
 //   郵便番号 → zipcloud / 住所 → 国土地理院 / 緯度経度 → Open-Meteo。睡眠の記録は送らない
 //   地名で探すときは、入れた地名だけを国土地理院に送る(zipcloud は使わない)
 // - 郵便番号と時刻は別のキー(BEDDING_KEY)に保存する。記録(sleep-type-tool)とバックアップJSONには入れない
+// - 速く出すため、郵便番号→住所・緯度経度と、最寄りのアメダス地点は端末(GEO_KEY)に覚える(全削除で消える。バックアップには入れない)
 // - 本体の $ や esc とぶつからないよう、全体を即時関数に閉じて window.viewBedding だけを出す
 (() => {
   'use strict';
@@ -165,8 +166,11 @@
   const ELEM = { temp: 0, wind: 2, hum: 5 };
   const ELEM_NAME = { temp: '気温', hum: '湿度', wind: '風' };
   // 1地点の、必要な時刻の観測(10分ごとの正時の値)を読む。欠測・品質が正常でない値は入れない
-  async function loadObs(id, hours, signal, memo) {
-    if (memo.has(id)) return memo.get(id);
+  function loadObs(id, hours, signal, memo) {
+    if (!memo.has(id)) memo.set(id, loadObsRun(id, hours, signal));   // 同じ地点は1回だけ取る(取得中の Promise を共有)
+    return memo.get(id);
+  }
+  async function loadObsRun(id, hours, signal) {
     const files = new Set(hours.map(h => `${ymdKey(h.t)}_${pad2(Math.floor(h.t.getHours() / 3) * 3)}`));
     const data = {};
     await Promise.all([...files].map(async f => {
@@ -179,40 +183,116 @@
       const o = data[`${ymdKey(h.t)}${pad2(h.t.getHours())}0000`];
       if (o && typeof o === 'object') obs.set(h.t.getTime(), { temp: ok(o.temp, -60, 60), hum: ok(o.humidity, 0, 100), wind: ok(o.wind, 0, 100) });
     }
-    memo.set(id, obs);
     return obs;
   }
   // 体感温度(Open-Meteo と同じ式。夜は日射なし): 気温・湿度・風速(m/s)から計算
   const feelOf = (ta, rh, ws) => ta + 0.348 * (rh / 100 * 6.105 * Math.exp(17.27 * ta / (237.7 + ta))) - 0.70 * ws - 4.25;
-  // 昨夜の各時刻を、気温・湿度・風それぞれ「近い順に、全時刻の値がそろう地点」から集める。そろわなければ why を返す
-  async function amedasNight(loc, nLast, signal) {
+  // 観測地点の一覧(約190KB)。同じ画面のあいだは1回だけ取る(取れなかったら次は取り直す)
+  let tablePromise = null;
+  function getTable(signal) {
+    if (!tablePromise) tablePromise = getJSON(`${JMA_BASE}const/amedastable.json`, signal).catch(e => { tablePromise = null; throw e; });
+    return tablePromise;
+  }
+  // ---- 場所と最寄り地点の保存(端末の localStorage だけ。バックアップには入れない。全削除で消える)
+  //  zips: 郵便番号 → 住所と緯度経度(同じ番号なら zipcloud と国土地理院に問い合わせない)
+  //  st:   場所(zip:… / place:…)→ 気温・湿度・風で選んだ最寄りの観測地点(30日たったら選び直す)
+  const GEO_KEY = 'sleep-type-tool-bedding-geo';
+  const GEO_MAX = 8;
+  const STATION_KEEP_MS = 30 * 24 * 3600000;
+  const OBS_KEYS = ['temp', 'hum', 'wind'];
+  const GEO_KEY_RE = /^(zip:\d{7}|place:-?\d{1,3}\.\d{2},-?\d{1,3}\.\d{2})$/;
+  function loadGeo() {
+    const out = { zips: {}, st: {} };
+    try {
+      const o = JSON.parse(localStorage.getItem(GEO_KEY) || 'null');
+      if (!o || typeof o !== 'object' || o.v !== 1) return out;
+      for (const [z, e] of Object.entries(o.zips && typeof o.zips === 'object' ? o.zips : {})) {
+        const addr = e && safeText(e.addr, 90);
+        if (/^\d{7}$/.test(z) && addr && inJapan(e.lat, e.lon) && inRange(e.at, 0, 4e12)) out.zips[z] = { addr, lat: e.lat, lon: e.lon, at: e.at };
+      }
+      for (const [k, e] of Object.entries(o.st && typeof o.st === 'object' ? o.st : {})) {
+        if (!GEO_KEY_RE.test(k) || !e || !inRange(e.at, 0, 4e12)) continue;
+        const picks = {};
+        for (const m of OBS_KEYS) {
+          const c = e[m], name = c && safeText(c.name, 20);
+          if (c && /^\d{5}$/.test(c.id) && name) picks[m] = { id: c.id, name };
+        }
+        if (OBS_KEYS.every(m => picks[m])) out.st[k] = { at: e.at, ...picks };
+      }
+    } catch (e) { /* 読めなければ覚えていないものとして扱う */ }
+    return out;
+  }
+  function saveGeo(g) {
+    const newest = obj => Object.fromEntries(Object.entries(obj).sort((a, b) => b[1].at - a[1].at).slice(0, GEO_MAX));
+    try { localStorage.setItem(GEO_KEY, JSON.stringify({ v: 1, zips: newest(g.zips), st: newest(g.st) })); } catch (e) { /* 保存できなくても動く */ }
+  }
+  // 郵便番号 → 住所・緯度経度。覚えていればそれを使う(通信しない)
+  async function lookupZipCached(zip, signal) {
+    const g = loadGeo(), c = g.zips[zip];
+    if (c) return { addr: c.addr, lat: c.lat, lon: c.lon };
+    const r = await lookupZip(zip, signal);
+    g.zips[zip] = { addr: r.addr, lat: r.lat, lon: r.lon, at: Date.now() };
+    saveGeo(g);
+    return r;
+  }
+  // 昨夜の観測を取り出す準備。hours = 昨夜の各時刻({t})。天気の予報と同時に走らせてよいよう、予報の値(feel など)は使わない
+  // 気温・湿度・風それぞれ「近い順に、全時刻の値がそろう地点」を選ぶ。最初の候補は3要素とも同時に取り、欠測のときだけ次の候補を取る
+  // 覚えている地点があればそれを先に使い(地点の一覧は取らない)、欠測のときだけ一覧から選び直す
+  // 返り値: { picked: {temp, hum, wind の観測}, names } か { why }
+  async function amedasPick(loc, hours, stKey, signal) {
+    const memo = new Map();
+    const complete = (obs, key) => hours.every(h => obs.get(h.t.getTime()) && obs.get(h.t.getTime())[key] !== null);
+    const geo = loadGeo(), saved = stKey ? geo.st[stKey] : null;
+    if (saved && Date.now() - saved.at < STATION_KEEP_MS && saved.at <= Date.now() + 60000) {
+      const obsList = await Promise.all(OBS_KEYS.map(k => loadObs(saved[k].id, hours, signal, memo)));
+      if (OBS_KEYS.every((k, i) => complete(obsList[i], k))) {
+        const picked = {}, names = {};
+        OBS_KEYS.forEach((k, i) => { picked[k] = obsList[i]; names[k] = saved[k].name; });
+        return { picked, names };
+      }
+    }
     let table;
-    try { table = await getJSON(`${JMA_BASE}const/amedastable.json`, signal); }
+    try { table = await getTable(signal); }
     catch (e) { if (signal && signal.aborted) throw e; return { why: '気象庁に通信できなかった' }; }
     const stations = parseStations(table);
-    const memo = new Map();
-    const names = {}, picked = {};
-    for (const key of ['temp', 'hum', 'wind']) {
+    const results = await Promise.all(OBS_KEYS.map(async key => {
       const cands = stations.filter(s => s.el[ELEM[key]] === '1')
         .map(s => ({ s, d: distKm(loc, s) })).filter(c => c.d <= AMEDAS_MAX_KM)
         .sort((a, b) => a.d - b.d).slice(0, AMEDAS_MAX_TRY);
       if (!cands.length) return { why: `${AMEDAS_MAX_KM}km以内に${ELEM_NAME[key]}の観測地点がない` };
-      let found = null;
-      for (const c of cands) {
-        const obs = await loadObs(c.s.id, nLast, signal, memo);
-        if (nLast.every(h => obs.get(h.t.getTime()) && obs.get(h.t.getTime())[key] !== null)) { found = { c, obs }; break; }
+      const first = loadObs(cands[0].s.id, hours, signal, memo);   // 最初の候補は他の要素と同時に取り始める
+      for (const [i, c] of cands.entries()) {
+        const obs = i === 0 ? await first : await loadObs(c.s.id, hours, signal, memo);
+        if (complete(obs, key)) return { found: { c, obs } };
       }
-      if (!found) return { why: `${ELEM_NAME[key]}の観測に欠測がある` };
-      picked[key] = found.obs; names[key] = found.c.s.name;
+      return { why: `${ELEM_NAME[key]}の観測に欠測がある` };
+    }));
+    const bad = results.find(r => r.why);
+    if (bad) return { why: bad.why };
+    const picked = {}, names = {};
+    OBS_KEYS.forEach((k, i) => { picked[k] = results[i].found.obs; names[k] = results[i].found.c.s.name; });
+    if (stKey) {
+      const g = loadGeo();
+      g.st[stKey] = { at: Date.now() };
+      OBS_KEYS.forEach((k, i) => { g.st[stKey][k] = { id: results[i].found.c.s.id, name: results[i].found.c.s.name }; });
+      saveGeo(g);
+    }
+    return { picked, names };
+  }
+  // 選んだ観測と、天気の予報(同じ時刻の nLast)から昨夜の実測の1時間ごとの値を作る。そろわなければ why を返す
+  function amedasBuild(pick, nLast) {
+    if (pick.why) return pick;
+    for (const key of OBS_KEYS) {
+      if (!nLast.every(h => pick.picked[key].get(h.t.getTime()) && pick.picked[key].get(h.t.getTime())[key] !== null)) return { why: `${ELEM_NAME[key]}の観測に欠測がある` };
     }
     // 計算式のずれを、同じ時刻の Open-Meteo の体感温度との差(平均)で補正する。今夜(予報)との比べが片寄らないように
     const bias = avg(nLast.map(h => h.feel - feelOf(h.temp, h.hum, h.wind / 3.6)));
     const hours = nLast.map(h => {
       const t = h.t.getTime();
-      const temp = picked.temp.get(t).temp, hum = picked.hum.get(t).hum, ws = picked.wind.get(t).wind;
+      const temp = pick.picked.temp.get(t).temp, hum = pick.picked.hum.get(t).hum, ws = pick.picked.wind.get(t).wind;
       return { t: h.t, temp, feel: feelOf(temp, hum, ws) + (Number.isFinite(bias) ? bias : 0), hum, wind: ws * 3.6, pop: null, code: h.code };
     });
-    return { hours, names };
+    return { hours, names: pick.names };
   }
 
   // 「夜」=寝る時刻〜起きる時刻(日をまたぐ)
@@ -418,7 +498,7 @@
   const isFresh = (d, key, bed, wake, now) => d.key === key && d.bed === bed && d.wake === wake
     && d.day === ymdKey(now) && d.at <= now.getTime() + 60000 && d.t0 === tonightBase(now, wake).getTime();
   // 全データ削除から呼ぶ。寝具の郵便番号・時刻・保存した結果を消す
-  window.beddingClear = () => { try { localStorage.removeItem(BEDDING_KEY); localStorage.removeItem(RESULT_KEY); localStorage.removeItem(REVIEW_KEY); localStorage.removeItem('sleep-type-tool-bedding-rvopen'); } catch (e) { /* 何もしない */ } };
+  window.beddingClear = () => { try { localStorage.removeItem(BEDDING_KEY); localStorage.removeItem(RESULT_KEY); localStorage.removeItem(REVIEW_KEY); localStorage.removeItem(GEO_KEY); localStorage.removeItem('sleep-type-tool-bedding-rvopen'); } catch (e) { /* 何もしない */ } };
 
   // ---- 昨夜のふりかえり:気象庁アメダスの気温(1時間ごと)を、昨夜と前の晩の2晩ぶん端末に保存して比べる
   //  - 送り先は気象庁だけ。最寄りの観測地点は端末の中で選ぶ(位置は送らない)。送るのは地点の番号と日付だけ
@@ -527,7 +607,7 @@
   async function reviewSeed(key, lat, lon, signal) {
     const cur = loadReview();
     if ((cur && cur.key === key) || rvNoStation === key) return;
-    const table = await getJSON(`${JMA_BASE}const/amedastable.json`, signal);
+    const table = await getTable(signal);
     const cands = parseStations(table).filter(s => s.el[ELEM.temp] === '1')
       .map(s => ({ s, d: distKm({ lat, lon }, s) })).filter(c => c.d <= AMEDAS_MAX_KM)
       .sort((a, b) => a.d - b.d).slice(0, AMEDAS_MAX_TRY).map(c => ({ id: c.s.id, name: c.s.name }));
@@ -944,11 +1024,16 @@
 
     // 通信して、描くのに必要な値をそろえる(保存できる形で返す)
     async function fetchData(target, bed, wake, signal) {
-      const loc = target.place ? { addr: target.place.name, lat: target.place.lat, lon: target.place.lon } : await lookupZip(target.zip, signal);
+      const loc = target.place ? { addr: target.place.name, lat: target.place.lat, lon: target.place.lon } : await lookupZipCached(target.zip, signal);
       const url = `https://api.open-meteo.com/v1/forecast?latitude=${round2(loc.lat)}&longitude=${round2(loc.lon)}`
         + `&hourly=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m`
         + `&past_days=5&forecast_days=3&timezone=Asia%2FTokyo`;
-      const w = await getJSON(url, signal);
+      // 昨夜の実測の取得は、天気の予報と同時に始める(昨夜の各時刻は、寝る・起きる時刻だけで決まる)
+      const wantNow = new Date(), wantT0 = tonightBase(wantNow, wake);
+      const spec = nightSlice(Array.from({ length: 24 * 8 }, (_, i) => ({ t: new Date(wantT0.getTime() + (i - 24 * 3) * 3600000) })), addDays(wantT0, -1), bed, wake);
+      let pickP = amedasPick(loc, spec, target.key, signal).catch(err => ({ err }));
+      let w;
+      try { w = await getJSON(url, signal); } catch (e) { pickP.catch(() => {}); throw e; }
       const hr = w && w.hourly;
       if (!hr || !Array.isArray(hr.time) || !Array.isArray(hr.temperature_2m) || hr.time.length > 400) throw new NetError('天気のデータを受け取れませんでした。しばらくしてからもう一度');
       const arr = k => Array.isArray(hr[k]) ? hr[k] : [];
@@ -966,7 +1051,10 @@
       // 昨夜は気象庁アメダスの実測に替える。取れない・欠測のときは Open-Meteo の値のまま
       let real = null, why = '';
       try {
-        const am = await amedasNight(loc, nLast, signal);
+        if (t0.getTime() !== wantT0.getTime()) pickP = amedasPick(loc, nLast, target.key, signal).catch(err => ({ err }));   // 日付の境目をまたいだ(まれ)
+        const pk = await pickP;
+        if (pk.err) throw pk.err;
+        const am = amedasBuild(pk, nLast);
         if (am.hours) { nLast = am.hours.map(cleanHour); real = am.names; } else why = am.why;
         if (nLast.some(h => !h)) { nLast = nightSlice(H, addDays(t0, -1), bed, wake); real = null; why = '実測の値が範囲外だった'; }
       } catch (err) { if (signal.aborted) throw err; why = '取得できなかった'; }
