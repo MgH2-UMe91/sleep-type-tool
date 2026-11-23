@@ -980,9 +980,9 @@ function openAimSheet(cursor, onSaved) {
         <button type="button" class="aim-span ${week ? 'cur' : ''}" data-week aria-pressed="${week}">${fmtDate(st.ws)}〜${fmtDate(addDays(st.ws, 6))}</button>
         <button type="button" class="btn ghost aim-mv" data-wk="1" aria-label="次の週">›</button></div>
       <div class="aim-week">${strip}</div>
-      <span class="small muted">${week ? '狙う睡眠タイプ' : 'この日に狙う睡眠タイプ'}</span>
+      <div class="aim-lbl"><span class="small muted">${week ? '狙う睡眠タイプ' : 'この日に狙う睡眠タイプ'}</span>${week ? '' : '<button type="button" class="aim-reset" data-act="reset">週の狙いに戻す</button>'}</div>
       <div class="aim-types">${aimTypeButtons(week ? e.wt : dayVal(st.ws, st.sel))}</div>
-      <div class="sheet-foot">${week ? '<button type="button" class="btn ghost" data-act="cancel">やめる</button>' : '<button type="button" class="btn ghost" data-act="reset">週の狙いに戻す</button>'}<button type="button" class="btn" data-act="save">保存する</button></div>`;
+      <div class="sheet-foot"><button type="button" class="btn ghost" data-act="cancel">やめる</button><button type="button" class="btn" data-act="save">保存する</button></div>`;
   };
   const done = msg => { dlg.close(); if (msg) toast(msg); onSaved(); };
   dlg.addEventListener('click', e => {
@@ -1005,10 +1005,12 @@ function openAimSheet(cursor, onSaved) {
       try {
         for (const ws of weeks) {
           const ed = edits[ws], have = Store.get().dayTargets;
-          if (ed.wt) Store.setWeekTarget(ws, ed.wt);
+          // 「狙わない」は項目を作らない(週は消す。日は、週に狙いがあってそれを外すときだけ none を入れる)
+          const wt = ed.wt === 'none' ? '' : ed.wt;
+          if (ed.wt) Store.setWeekTarget(ws, wt || null);
           for (let i = 0; i < 7; i++) {
             const day = addDays(ws, i), v = ed.dv[day];
-            if (v !== undefined && v !== ed.wt) Store.setDayTarget(day, v);   // 週の狙いと違う日だけ
+            if (v !== undefined && v !== wt && !(v === 'none' && !wt)) Store.setDayTarget(day, v);   // 週の狙いと違う日だけ
             else if (have.some(t => t.date === day)) Store.setDayTarget(day, null);
           }
         }
@@ -1069,6 +1071,7 @@ function viewCalendar(root, id, q) {
   const lastMonth = [addMonths(thisMonth, 3), ...targetDates.map(t => addMonths(ymOf(t), 1))].sort().pop();
   const want = q.d && isYmd(q.d) ? q.d : null;
   const restoring = want && calState.y !== null;
+  if (!want) calCursor = null;   // 日を指定せず開き直したときは、カーソルも今日に戻す(画面に見えない週で＋が開かないように)
   // 最初に描く範囲(古い月はスクロールで近づいたら追加する)
   // 見たい月の3か月前から。戻ってきたときは、離れたときに描いていた一番古い月から。記録のある最初の月より前には行かない
   let from = addMonths(ymOf(want || today), -3);
