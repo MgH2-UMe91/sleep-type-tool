@@ -248,7 +248,6 @@ dialog.sheet[open] { display: flex; flex-direction: column; gap: 12px; }
 /* 一括取り込み */
 .bulk-item { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .bulk-item.need { border: 2px solid var(--warn); background: var(--warn-soft); }
-.bulk-item.need .card-in { background: var(--surface); }
 .progress { height: 10px; border-radius: 5px; background: var(--surface-2); overflow: hidden; }
 .progress span { display: block; height: 100%; background: var(--accent); width: 0; transition: width .2s; }
 
@@ -285,7 +284,6 @@ details.manual[open] > summary { margin-bottom: 8px; }
 .dbg-grid span { overflow-wrap: anywhere; }
 .dbg-crop { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .dbg-crop canvas { max-width: 100%; max-height: 64px; width: auto; height: auto; object-fit: contain; border: 1px solid var(--line); background: #fff; align-self: flex-start; }
-.preview-img { max-width: 100%; max-height: 220px; border-radius: 8px; border: 1px solid var(--line); align-self: flex-start; }
 
 /* 狙い設定:狙う週を決める */
 .week-head { display: grid; grid-template-columns: 1fr 8.5em; gap: 8px; align-items: center; }
@@ -297,7 +295,6 @@ details.manual[open] > summary { margin-bottom: 8px; }
 
 /* 公式イベント */
 .wk-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0; }
-.wk-tags .wk-tag { margin: 0; }
 .ev-tag { display: inline-block; font-size: .68rem; font-weight: 700; padding: 0 6px; border-radius: 4px; background: #e6dcff; color: #3f2a86; white-space: nowrap; }
 .ev-tag.free { background: #ffe1d6; color: #8a2f12; }
 :root[data-theme="dark"] .ev-tag { background: #3a2f63; color: #ddd2ff; }

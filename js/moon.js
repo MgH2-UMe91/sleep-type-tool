@@ -86,5 +86,5 @@ const Moon = (() => {
     return out;
   }
 
-  return { markOf, spansBetween, phasesOfYear };
+  return { markOf, spansBetween };
 })();

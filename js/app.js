@@ -11,6 +11,7 @@ const fmtPct = v => v === null || v === undefined ? '—' : v.toFixed(1);
 const SHORT = { none: 'なし', uto: 'うと', suya: 'すや', gus: 'ぐっ', '': '?' };
 const tchip = (t, suffix = '') => `<span class="tchip ${t ? 't-' + t : 't-empty'}">${TYPE_LABEL[t || '']}${suffix}</span>`;
 const pctDot = k => `<i class="t-${k}"></i>`;
+const avgBar = pct => `<div class="avgbar" aria-hidden="true">${KINDS.map(k => `<span class="t-${k}" style="width:${pct(k)}%"></span>`).join('')}</div>`;
 
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
@@ -135,10 +136,9 @@ function route() {
 // ---------- 平均の表示部品 ----------
 function avgBlock(st, label) {
   if (!st.n) return `<div class="small muted">${label}:記録なし</div>`;
-  const bar = KINDS.map(k => `<span class="t-${k}" style="width:${st[k].mean}%"></span>`).join('');
   return `<div class="stack">
     <div class="row"><b>${label}</b><span class="small muted">${st.n}件</span>${st.isReference ? '<span class="ref">参考値(30件未満)</span>' : ''}</div>
-    <div class="avgbar" aria-hidden="true">${bar}</div>
+    ${avgBar(k => st[k].mean)}
     <div class="avgtbl">
       <span></span>${KINDS.map(k => `<span class="h pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span>`).join('')}
       <span class="h">平均</span>${KINDS.map(k => `<span class="num">${fmtPct(st[k].mean)}%</span>`).join('')}
@@ -169,7 +169,7 @@ function avgRows(refDate) {
     if (!tr.n) return `${head}<span class="small muted">記録なし</span></div>`;
     const st = tr.stats;
     return `<div class="stack avg3-row">${head}<span class="small muted">${tr.n}件</span><span class="ref">${tr.level}</span></div>
-      <div class="avgbar" aria-hidden="true">${KINDS.map(k => `<span class="t-${k}" style="width:${st[k].mean}%"></span>`).join('')}</div>
+      ${avgBar(k => st[k].mean)}
       <div class="avg3 num" aria-label="平均 ${KINDS.map(k => `${TYPE_LABEL[k]} ${fmtPct(st[k].mean)}%`).join('、')}">${KINDS.map(k => `<span>${fmtPct(st[k].mean)}%</span>`).join('')}</div></div>`;
   };
   return `<div class="avg3 avg3-legend small" aria-hidden="true">${KINDS.map(k => `<span class="pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span>`).join('')}</div>
@@ -219,7 +219,7 @@ function windowCard(today, compact = false) {
   const gain = A.n && B.n ? A[k].mean - B[k].mean : 0;
   const sign = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
   const bar = (label, st) => st && st.n ? `<div class="stack avg3-row"><div class="row avg3-head"><b class="small">${label}</b><span class="small muted">${st.n}件${st.future ? `(うち見込み${st.future})` : ''}</span></div>
-    <div class="avgbar" aria-hidden="true">${KINDS.map(t => `<span class="t-${t}" style="width:${st[t].mean}%"></span>`).join('')}</div>
+    ${avgBar(k => st[k].mean)}
     <div class="avg3 num small">${KINDS.map(t => `<span${t === k ? ' class="aimv"' : ''}>${fmtPct(st[t].mean)}%</span>`).join('')}</div></div>` : '';
   const drops = w.drop.slice().reverse();
   return `<section class="card wincard">
@@ -338,7 +338,7 @@ function nextWeekCard(today, plan) {
     body = `${forecastHead('来週', f, uLabel, '来週の基準(直近30回の見込み)')}
     <p class="small">来週(${Calc.fmtMd(f.S)}〜${Calc.fmtMd(f.end)})の基準 = ${Calc.fmtMd(f.w.from)}〜${Calc.fmtMd(f.w.to)}の${f.total}回</p>
     <div class="row"><span class="small"><b>確定 ${f.fixed}/${f.total}回</b>${left ? `(残り${f.nights}夜は見込み)` : ''}</span><span class="ref">${status}</span></div>
-    <div class="avgbar" aria-hidden="true">${KINDS.map(k => `<span class="t-${k}" style="width:${f.proj[k].mean}%"></span>`).join('')}</div>
+    ${avgBar(k => f.proj[k].mean)}
     <div class="tbl-wrap"><table class="likely-tbl">
       <tr><th></th><th>来週の基準<br><small>30回の見込み</small></th><th>${uLabel}<br><small>普段の寝方</small></th><th>差</th></tr>
       ${KINDS.map(k => `<tr${k === f.top ? ' class="top"' : ''}><td><span class="pct-label">${pctDot(k)}${TYPE_LABEL[k]}</span></td>
@@ -945,7 +945,8 @@ function openWeekPlan(ws, onClose) {
 const AIM_TYPES = ['uto', 'suya', 'gus', 'none'];
 const AIM_TYPE_NAME = { uto: 'うとうと', suya: 'すやすや', gus: 'ぐっすり', none: '狙わない' };
 let calCursor = null; // カレンダーで最後に押した日(まだなら今日)
-const aimOfDay = day => { const t = Store.targetOf(day); return t && KINDS.includes(t.target) ? t.target : null; };
+// 日の狙い。日ごとの設定を優先し、なければ週の設定。「狙わない(none)」や未設定は null
+const aimOf = day => { const t = Store.targetOf(day); return t && KINDS.includes(t.target) ? t.target : null; };
 const aimTypeButtons = sel => AIM_TYPES.map(t => `<button type="button" class="aim-t t-${t}" data-aim="${t}" aria-pressed="${sel === t}">${AIM_TYPE_NAME[t]}</button>`).join('');
 
 // 7日の列の1マス(週タブ・日付タブ共通)。v = その日のタイプ('' = 狙わない/未設定は「―」)。pick を渡すと押せるマスになる
@@ -1082,10 +1083,7 @@ function viewCalendar(root, id, q) {
   // 週の列(月曜の左):週の計画のフィールドの絵文字だけを出し、押すと週の計画が開く。
   // その週の7日の狙いがすべて同じタイプなら、列をそのタイプの色で塗る(1日でも違う日・狙いのない日があれば塗らない)
   const planField = ws => { const p = Store.weekPlan(ws); return p ? fieldOf(p.field) : null; };
-  // 日ごとの狙い:その日の日ごとの設定(dayTargets)を優先し、なければ週の設定(weekTargets)。「指定なし(none)」や未設定は狙いなし(null)
-  const aimOf = day => { const t = Store.targetOf(day); return t && KINDS.includes(t.target) ? t.target : null; };
   const weekAim = ws => { const a = aimOf(ws); return a && [1, 2, 3, 4, 5, 6].every(i => aimOf(addDays(ws, i)) === a) ? a : null; };
-  const AIM_CHAR = { uto: 'う', suya: 'す', gus: 'ぐ' };
   const sideLabel = ws => { const f = planField(ws), a = weekAim(ws); return `${Calc.fmtMd(ws)}週${f ? ` ${f.name}` : ''}${a ? ` ${TYPE_LABEL[a]}を狙う週` : ''}。週の計画を開く`; };
 
   function monthHtml(ym) {
@@ -1106,7 +1104,7 @@ function viewCalendar(root, id, q) {
         cells += `<button type="button" class="day ${day === today ? 'today' : ''} ${day === (calCursor || today) ? 'cursor' : ''} ${aim ? 'aim k-' + aim : ''}" data-d="${day}"
           aria-label="${fmtDateLong(day)}${rs.length ? ' ' + rs.map(r => TYPE_LABEL[r.type]).join('・') : ' 記録なし'}${aim ? ' 狙い' + TARGET_LABEL[aim] : ''}${evs.length ? ' イベント ' + esc(evs.map(e => Events.displayTitle(e.title)).join('、')) : ''}${mn ? ` ${mn.mark}(${MOON_NAME[mn.phase]}${mn.exact ? 'の日' : 'の前後'})` : ''}">
           ${mn ? `<span class="moon ${mn.phase} ${mn.exact ? 'exact' : ''}" aria-hidden="true">${MOON_ICON[mn.phase]}</span>` : ''}
-          <span class="dline"><span class="d">${Number(day.slice(8))}</span>${aim ? `<span class="aimk" aria-hidden="true">${AIM_CHAR[aim]}狙</span>` : ''}</span>
+          <span class="dline"><span class="d">${Number(day.slice(8))}</span>${aim ? `<span class="aimk" aria-hidden="true">${AIM_CH[aim]}狙</span>` : ''}</span>
           ${rs.map(r => `<span class="tl ${r.type ? 't-' + r.type : 't-empty'}">${SHORT[r.type]}</span>${r.excluded ? '<span class="exm">集計外</span>' : ''}`).join('')}
         </button>`;
       }
@@ -1306,7 +1304,7 @@ function viewCalendar(root, id, q) {
       if (aim) cell.classList.add('aim', 'k-' + aim);
       const dl = $('.dline', cell), mk = $('.aimk', cell);
       if (mk) mk.remove();
-      if (aim) dl.insertAdjacentHTML('beforeend', `<span class="aimk" aria-hidden="true">${AIM_CHAR[aim]}狙</span>`);
+      if (aim) dl.insertAdjacentHTML('beforeend', `<span class="aimk" aria-hidden="true">${AIM_CH[aim]}狙</span>`);
     }
     for (const el of $$('button.wk-side', list)) {
       const ws = el.dataset.ws, wa = weekAim(ws);
@@ -1352,7 +1350,7 @@ function calDetailHtml(d, rs) {
   const a30n = Calc.averageAt(d, 'count');
   // 比較の1行:ラベル・帯・割合。列の見出しは比較ブロックに1回だけ
   const cmpRow = (label, pcts, fmt = fmtPct, range = '') => `<div class="stack avg3-row"><div class="row avg3-head"><b class="small">${label}</b>${range}</div>
-    <div class="avgbar" aria-hidden="true">${KINDS.map(k => `<span class="t-${k}" style="width:${pcts(k)}%"></span>`).join('')}</div>
+    ${avgBar(pcts)}
     <div class="avg3 num small">${KINDS.map(k => `<span>${fmt(pcts(k))}%</span>`).join('')}</div></div>`;
   // 平均に使った記録(est.priorRecs)の最も古い日〜最も新しい日。記録がなければ出さない
   const priorRange = est => { const p = est.priorRecs; return p && p.length ? `<span class="avg-range muted">${Calc.fmtMd(p[0].date)}〜${Calc.fmtMd(p[p.length - 1].date)}</span>` : ''; };

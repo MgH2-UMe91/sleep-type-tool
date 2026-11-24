@@ -401,5 +401,5 @@ const Store = (() => {
   function clearAll() { const s = get().settings; db = empty(); db.settings = s; saveBlocked = false; save(); brokenKeys().forEach(k => { try { localStorage.removeItem(k); } catch (e) { /* 何もしない */ } }); }
 
   return { load, get, records, upsertRecord, setExcluded, deleteRecord, findDuplicate, findSameDateUnsure, newId, setWeekTarget, setDayTarget, targetOf, weekPlan, setWeekPlan, dayPlan,
-    setSetting, upsertEvent, removeEvent, exportJson, exportCsv, markExported, importText, clearAll, normalizeRecord, recovery, brokenText, removeBroken };
+    setSetting, upsertEvent, removeEvent, exportJson, exportCsv, markExported, importText, clearAll, recovery, brokenText, removeBroken };
 })();

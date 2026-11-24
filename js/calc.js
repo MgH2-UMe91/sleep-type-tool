@@ -383,6 +383,6 @@ const Calc = (() => {
     return ((hmToMin(w) - hmToMin(b)) % 1440 + 1440) % 1440;
   }
 
-  return { pick, stats, averageAt, recentRecords, reliability, tendency, tendencyAt, suspicious, estimateType, planFor, windowDays, perDayAt, upcomingTargets,
-    windowAt, projectAverage, abandonImpact, likelyTonight, nextWeekForecast, forecastGrade, missingDays, spanMin, fmtMd };
+  return { stats, averageAt, recentRecords, tendencyAt, suspicious, estimateType, planFor, upcomingTargets,
+    windowAt, projectAverage, abandonImpact, likelyTonight, nextWeekForecast, missingDays, spanMin, fmtMd };
 })();
